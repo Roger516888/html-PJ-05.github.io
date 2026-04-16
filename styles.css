@@ -49,3 +49,18 @@ td {
     border: 1px solid #ddd;
     border-radius: 5px;
 }
+.lang-switcher {
+    text-align: right;
+    margin-bottom: 10px;
+}
+.lang-switcher .lang-btn {
+    padding: 4px 10px;
+    margin: 0 2px;
+    background-color: #e9ecef;
+    color: #333;
+    font-size: 14px;
+}
+.lang-switcher .lang-btn.active {
+    background-color: #007BFF;
+    color: white;
+}
