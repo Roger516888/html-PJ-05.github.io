@@ -1,0 +1,29 @@
+name: lint
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 檢查 TSV 分隔符為 tab
+        run: |
+          for f in terms.tsv rejected.tsv; do
+            if grep -qP '^[^\t]+$' "$f"; then
+              echo "::error file=$f::有資料列不含 tab，分隔符可能已被轉成空白"
+              grep -nP '^[^\t]+$' "$f"
+              exit 1
+            fi
+          done
+
+      - name: 四項檢查
+        run: python3 scripts/lint.py
