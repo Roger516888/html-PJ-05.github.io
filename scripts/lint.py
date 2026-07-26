@@ -22,7 +22,9 @@ VERIFICATION_HEADER = ["禁語", "建議用語", "來源類型", "查到的詞�
 VERIFICATION_OPTIONAL = {5}
 
 # 這些依據宣稱「查得到具體來源」，必須在 verification.tsv 留下網址。
-BASES_REQUIRING_EVIDENCE = {"國教院樂詞網", "主管機關用語", "兩岸用語對照"}
+# 「業界慣用」也在內——宣稱業界穩定使用，就要拿得出語料或業界文件。
+BASES_REQUIRING_EVIDENCE = {"國教院樂詞網", "主管機關用語", "兩岸用語對照",
+                            "業界慣用"}
 
 CATEGORIES = {
     "資訊科技",
@@ -39,8 +41,9 @@ BASES = {
     "國教院樂詞網",      # 樂詞網查得到詞條，網址記於 verification.tsv
     "主管機關用語",      # 主管機關官網用字，網址記於 verification.tsv
     "兩岸用語對照",      # 兩岸用詞差異參考資料佐證，非辭典本文
-    "業界慣用",          # 台灣業界穩定說法，無外部書面依據
+    "業界慣用",          # 有語料或業界文件佐證的台灣業界說法
     "語感重構",          # 黨政／管理腔，判斷理由是語感而非辭典明文
+    "待查證",            # 本輪未找到書面來源。這是「未知」，不是「業界慣用」
 }
 
 IDEOGRAPHIC_SPACE = "　"
@@ -156,24 +159,46 @@ class Linter(object):
     # 檢查四（續）：宣稱有來源者，verification.tsv 必須有對應網址
     # ------------------------------------------------------------------
     def check_evidence(self, terms, verification):
+        # verification.tsv 內同一禁語不得重複——否則後列會蓋掉前列，
+        # 交叉比對就形同虛設。
         evidenced = {}
         for lineno, fields in verification:
-            evidenced[fields[0]] = (lineno, fields[2])
+            term = fields[0]
+            if term in evidenced:
+                self.err(VERIFICATION_PATH, lineno,
+                         "「%s」重複（首見於第 %d 行）"
+                         % (term, evidenced[term][0]))
+                continue
+            evidenced[term] = (lineno, fields[2], fields[1])
+
+            url = fields[4]
+            if url != "" and not url.startswith("https://"):
+                self.err(VERIFICATION_PATH, lineno,
+                         "「來源網址」須為 https:// 開頭的網址，實際為「%s」" % url)
+
+        terms_by_name = {}
+        for lineno, fields in terms:
+            terms_by_name[fields[0]] = fields
 
         for lineno, fields in terms:
-            term, basis = fields[0], fields[3]
+            term, suggested, basis = fields[0], fields[1], fields[3]
             if basis in BASES_REQUIRING_EVIDENCE and term not in evidenced:
                 self.err(TERMS_PATH, lineno,
                          "依據為「%s」但 verification.tsv 查無「%s」的佐證網址"
                          % (basis, term))
-            elif term in evidenced and evidenced[term][1] != basis:
-                self.err(VERIFICATION_PATH, evidenced[term][0],
-                         "「%s」的來源類型「%s」與 terms.tsv 的依據「%s」不符"
-                         % (term, evidenced[term][1], basis))
+            elif term in evidenced:
+                ev_lineno, ev_kind, ev_suggested = evidenced[term]
+                if ev_kind != basis:
+                    self.err(VERIFICATION_PATH, ev_lineno,
+                             "「%s」的來源類型「%s」與 terms.tsv 的依據「%s」不符"
+                             % (term, ev_kind, basis))
+                if ev_suggested != suggested:
+                    self.err(VERIFICATION_PATH, ev_lineno,
+                             "「%s」的建議用語「%s」與 terms.tsv 的「%s」不符"
+                             % (term, ev_suggested, suggested))
 
-        seen = set(f[0] for _, f in terms)
         for lineno, fields in verification:
-            if fields[0] not in seen:
+            if fields[0] not in terms_by_name:
                 self.err(VERIFICATION_PATH, lineno,
                          "「%s」不在 terms.tsv 內" % fields[0])
 
