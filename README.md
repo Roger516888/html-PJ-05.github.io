@@ -32,6 +32,14 @@ python3 scripts/lint.py
 
 四項檢查為：格式（tab 分隔與欄位數）、必填欄位、重複與交集、內容一致性。CI 會在每次 push 與 PR 時執行。
 
+lint 本身的回歸測試：
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+共 20 項，涵蓋每種檢查的失敗案例與行號正確性，同樣在 CI 執行——用意是防止日後修改 lint 時把檢查改鬆而沒被發現。
+
 ## 加詞
 
 收詞規則寫在 [`CLAUDE.md`](CLAUDE.md)，包含查證來源的優先順序、該收與不該收的判準、依據欄的填法、防重複的 grep 指令。修改資料前請先讀。
@@ -39,6 +47,16 @@ python3 scripts/lint.py
 ## 注意
 
 `terms.tsv` 與 `rejected.tsv` 必須使用真正的 tab（U+0009）。複製貼上時 tab 常被編輯器轉成空白，lint 會擋下來並提示「疑似 tab 被轉成空白」——那是格式問題，修分隔符即可，不要放寬 `scripts/lint.py` 的規則。
+
+三層防護的實際分工：
+
+| 層 | 機制 | 能擋什麼 |
+|---|---|---|
+| Git | `.gitattributes` `text eol=lf` | 跨平台 checkout 時 LF 被轉為 CRLF |
+| 編輯器 | `.editorconfig` `indent_style = tab` | 提示以 hard tab 縮排 |
+| 提交前後 | `scripts/lint.py` + CI | 分隔符、欄位、內容的實際驗證 |
+
+`.editorconfig` 規範的是**縮排**，並不保證保留 TSV 欄位中間的分隔符，EditorConfig 也沒有可攜的屬性能做到這件事。**分隔符完整性只由 lint 與 CI 強制驗證。**
 
 ---
 
