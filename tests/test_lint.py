@@ -22,14 +22,21 @@ REJECTED_HEADER = "詞\t不收錄原因\t判定日期"
 VALID_TERMS = [
     TERMS_HEADER,
     "視頻\t影片\t資訊科技\t國教院樂詞網\t2026-07-25",
-    "質量\t品質\t資訊科技\t教育部重編國語辭典\t2026-07-25",
-    "土豆\t馬鈴薯\t飲食\t教育部重編國語辭典\t2026-07-25",
+    "質量\t品質\t資訊科技\t業界慣用\t2026-07-25",
+    "土豆\t馬鈴薯\t飲食\t業界慣用\t2026-07-25",
 ]
 
 VALID_REJECTED = [
     REJECTED_HEADER,
     "手機\t兩岸通用，非陸語專屬\t2026-07-25",
     "電腦\t兩岸通用，台灣正式用語\t2026-07-25",
+]
+
+VERIFICATION_HEADER = "禁語\t建議用語\t來源類型\t查到的詞條\t來源網址\t備註\t查證日期"
+
+VALID_VERIFICATION = [
+    VERIFICATION_HEADER,
+    "視頻\t影片\t國教院樂詞網\tvideo - 影片\thttps://terms.naer.edu.tw/detail/1/\t\t2026-07-26",
 ]
 
 
@@ -40,6 +47,7 @@ class LintTestCase(unittest.TestCase):
         shutil.copy(LINT, os.path.join(self.dir, "scripts", "lint.py"))
         self.write_terms(VALID_TERMS)
         self.write_rejected(VALID_REJECTED)
+        self.write_verification(VALID_VERIFICATION)
 
     def tearDown(self):
         shutil.rmtree(self.dir, ignore_errors=True)
@@ -58,6 +66,9 @@ class LintTestCase(unittest.TestCase):
 
     def write_rejected(self, lines, trailing_newline=True):
         self._write("rejected.tsv", lines, trailing_newline)
+
+    def write_verification(self, lines, trailing_newline=True):
+        self._write("verification.tsv", lines, trailing_newline)
 
     def run_lint(self):
         proc = subprocess.run(
@@ -88,7 +99,7 @@ class LintTestCase(unittest.TestCase):
 
     def test_wrong_field_count(self):
         lines = list(VALID_TERMS)
-        lines[2] = "質量\t品質\t資訊科技\t教育部重編國語辭典"
+        lines[2] = "質量\t品質\t資訊科技\t業界慣用"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "欄位數 4，應為 5")
 
@@ -122,7 +133,7 @@ class LintTestCase(unittest.TestCase):
 
     def test_surrounding_whitespace(self):
         lines = list(VALID_TERMS)
-        lines[2] = "質量\t 品質\t資訊科技\t教育部重編國語辭典\t2026-07-25"
+        lines[2] = "質量\t 品質\t資訊科技\t業界慣用\t2026-07-25"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "「建議用語」欄有多餘空白")
 
@@ -151,33 +162,33 @@ class LintTestCase(unittest.TestCase):
     # -- 檢查四：一致性 -------------------------------------------------
     def test_term_equals_suggested(self):
         lines = list(VALID_TERMS)
-        lines[2] = "品質\t品質\t資訊科技\t教育部重編國語辭典\t2026-07-25"
+        lines[2] = "品質\t品質\t資訊科技\t業界慣用\t2026-07-25"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "禁語與建議用語相同")
 
     def test_invalid_category(self):
         lines = list(VALID_TERMS)
-        lines[2] = "質量\t品質\t政治\t教育部重編國語辭典\t2026-07-25"
+        lines[2] = "質量\t品質\t政治\t業界慣用\t2026-07-25"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "類別「政治」不在允許清單內")
 
     # -- 全形空白：所有欄位、兩個檔案 ------------------------------------
     def test_ideographic_space_in_term(self):
         lines = list(VALID_TERMS)
-        lines[2] = "質　量\t品質\t資訊科技\t教育部重編國語辭典\t2026-07-25"
+        lines[2] = "質　量\t品質\t資訊科技\t業界慣用\t2026-07-25"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "「禁語」欄含全形空白")
 
     def test_ideographic_space_in_basis(self):
         """曾漏檢：全形空白只查禁語與建議用語兩欄。"""
         lines = list(VALID_TERMS)
-        lines[2] = "質量\t品質\t資訊科技\t教育部　重編國語辭典\t2026-07-25"
+        lines[2] = "質量\t品質\t資訊科技\t業　界慣用\t2026-07-25"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "「依據」欄含全形空白")
 
     def test_ideographic_space_in_date(self):
         lines = list(VALID_TERMS)
-        lines[2] = "質量\t品質\t資訊科技\t教育部重編國語辭典\t2026　07-25"
+        lines[2] = "質量\t品質\t資訊科技\t業界慣用\t2026　07-25"
         self.write_terms(lines)
         self.assertFails("terms.tsv:3", "「收錄日期」欄含全形空白")
 
@@ -200,6 +211,46 @@ class LintTestCase(unittest.TestCase):
             "terms.tsv:5", "禁語「視頻」重複",
         )
         self.assertIn("lint 失敗，共 3 項問題", err)
+
+
+    # -- 依據欄與佐證交叉檢查 -------------------------------------------
+    def test_invalid_basis(self):
+        lines = list(VALID_TERMS)
+        lines[2] = "質量\t品質\t資訊科技\t教育部重編國語辭典\t2026-07-25"
+        self.write_terms(lines)
+        self.assertFails("terms.tsv:3", "依據「教育部重編國語辭典」不在允許清單內")
+
+    def test_authoritative_basis_without_evidence(self):
+        """宣稱查得到來源，就必須在 verification.tsv 留網址。"""
+        lines = list(VALID_TERMS)
+        lines[2] = "質量\t品質\t資訊科技\t國教院樂詞網\t2026-07-25"
+        self.write_terms(lines)
+        self.assertFails("terms.tsv:3",
+                         "verification.tsv 查無「質量」的佐證網址")
+
+    def test_verification_orphan(self):
+        lines = VALID_VERIFICATION + [
+            "不存在詞\t替代\t國教院樂詞網\t測試\thttps://example.com\t\t2026-07-26"]
+        self.write_verification(lines)
+        self.assertFails("verification.tsv:3", "「不存在詞」不在 terms.tsv 內")
+
+    def test_verification_source_type_mismatch(self):
+        lines = list(VALID_VERIFICATION)
+        lines[1] = ("視頻\t影片\t兩岸用語對照\tvideo - 影片"
+                    "\thttps://terms.naer.edu.tw/detail/1/\t\t2026-07-26")
+        self.write_verification(lines)
+        self.assertFails("verification.tsv:2", "來源類型「兩岸用語對照」與 terms.tsv 的依據「國教院樂詞網」不符")
+
+    def test_verification_note_may_be_empty(self):
+        """備註為選填，留空不應報錯。"""
+        code, out, err = self.run_lint()
+        self.assertEqual(code, 0, err)
+
+    def test_verification_url_required(self):
+        lines = list(VALID_VERIFICATION)
+        lines[1] = "視頻\t影片\t國教院樂詞網\tvideo - 影片\t\t\t2026-07-26"
+        self.write_verification(lines)
+        self.assertFails("verification.tsv:2", "「來源網址」欄為空")
 
 
 if __name__ == "__main__":

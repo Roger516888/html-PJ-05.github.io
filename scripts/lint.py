@@ -12,9 +12,17 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TERMS_PATH = os.path.join(ROOT, "terms.tsv")
 REJECTED_PATH = os.path.join(ROOT, "rejected.tsv")
+VERIFICATION_PATH = os.path.join(ROOT, "verification.tsv")
 
 TERMS_HEADER = ["禁語", "建議用語", "類別", "依據", "收錄日期"]
 REJECTED_HEADER = ["詞", "不收錄原因", "判定日期"]
+VERIFICATION_HEADER = ["禁語", "建議用語", "來源類型", "查到的詞條",
+                       "來源網址", "備註", "查證日期"]
+# 「備註」為選填，其餘皆必填。
+VERIFICATION_OPTIONAL = {5}
+
+# 這些依據宣稱「查得到具體來源」，必須在 verification.tsv 留下網址。
+BASES_REQUIRING_EVIDENCE = {"國教院樂詞網", "主管機關用語", "兩岸用語對照"}
 
 CATEGORIES = {
     "資訊科技",
@@ -25,6 +33,14 @@ CATEGORIES = {
     "公共事務",
     "醫療",
     "日常生活",
+}
+
+BASES = {
+    "國教院樂詞網",      # 樂詞網查得到詞條，網址記於 verification.tsv
+    "主管機關用語",      # 主管機關官網用字，網址記於 verification.tsv
+    "兩岸用語對照",      # 兩岸用詞差異參考資料佐證，非辭典本文
+    "業界慣用",          # 台灣業界穩定說法，無外部書面依據
+    "語感重構",          # 黨政／管理腔，判斷理由是語感而非辭典明文
 }
 
 IDEOGRAPHIC_SPACE = "　"
@@ -94,12 +110,13 @@ class Linter(object):
     # 檢查二：必填（不得為空、不得有前後空白）
     # 檢查四（部分）：所有欄位皆不得含全形空白
     # ------------------------------------------------------------------
-    def check_fields(self, path, rows, header):
+    def check_fields(self, path, rows, header, optional=frozenset()):
         for lineno, fields in rows:
             for idx, name in enumerate(header):
                 v = fields[idx]
                 if v == "":
-                    self.err(path, lineno, "「%s」欄為空" % name)
+                    if idx not in optional:
+                        self.err(path, lineno, "「%s」欄為空" % name)
                     continue
                 if v != v.strip():
                     self.err(path, lineno, "「%s」欄有多餘空白" % name)
@@ -125,11 +142,40 @@ class Linter(object):
     # ------------------------------------------------------------------
     def check_consistency(self, path, rows):
         for lineno, fields in rows:
-            term, suggested, category = fields[0], fields[1], fields[2]
+            term, suggested, category, basis = fields[0], fields[1], fields[2], fields[3]
             if term == suggested:
                 self.err(path, lineno, "禁語與建議用語相同：「%s」" % term)
             if category not in CATEGORIES:
                 self.err(path, lineno, "類別「%s」不在允許清單內" % category)
+            if basis != "" and basis not in BASES:
+                self.err(path, lineno,
+                         "依據「%s」不在允許清單內；宣稱查得到詞條者"
+                         "須同時列入 verification.tsv" % basis)
+
+    # ------------------------------------------------------------------
+    # 檢查四（續）：宣稱有來源者，verification.tsv 必須有對應網址
+    # ------------------------------------------------------------------
+    def check_evidence(self, terms, verification):
+        evidenced = {}
+        for lineno, fields in verification:
+            evidenced[fields[0]] = (lineno, fields[2])
+
+        for lineno, fields in terms:
+            term, basis = fields[0], fields[3]
+            if basis in BASES_REQUIRING_EVIDENCE and term not in evidenced:
+                self.err(TERMS_PATH, lineno,
+                         "依據為「%s」但 verification.tsv 查無「%s」的佐證網址"
+                         % (basis, term))
+            elif term in evidenced and evidenced[term][1] != basis:
+                self.err(VERIFICATION_PATH, evidenced[term][0],
+                         "「%s」的來源類型「%s」與 terms.tsv 的依據「%s」不符"
+                         % (term, evidenced[term][1], basis))
+
+        seen = set(f[0] for _, f in terms)
+        for lineno, fields in verification:
+            if fields[0] not in seen:
+                self.err(VERIFICATION_PATH, lineno,
+                         "「%s」不在 terms.tsv 內" % fields[0])
 
     # ------------------------------------------------------------------
     def run(self):
@@ -148,6 +194,11 @@ class Linter(object):
                          "「%s」同時出現在 terms.tsv 第 %d 行" % (t, seen_terms[t]))
 
         self.check_consistency(TERMS_PATH, terms)
+
+        verification = self.read_rows(VERIFICATION_PATH, VERIFICATION_HEADER)
+        self.check_fields(VERIFICATION_PATH, verification, VERIFICATION_HEADER,
+                          optional=VERIFICATION_OPTIONAL)
+        self.check_evidence(terms, verification)
 
         return terms, rejected
 
