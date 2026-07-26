@@ -8,6 +8,7 @@ lint 擋下來就是資料要改，不要放寬這裡的規則。
 import io
 import os
 import sys
+from urllib.parse import urlsplit
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TERMS_PATH = os.path.join(ROOT, "terms.tsv")
@@ -47,6 +48,27 @@ BASES = {
 }
 
 IDEOGRAPHIC_SPACE = "　"
+
+
+def url_problem(url):
+    """回傳網址的結構問題描述；合法則回傳 None。
+
+    只做結構驗證，不連線。連結是否仍可定位屬於外部狀態，
+    不適合放進一般 CI，須另以人工或排程檢查。
+    """
+    if any(c.isspace() for c in url):
+        return "不得含空白字元"
+    try:
+        parts = urlsplit(url)
+    except ValueError as exc:
+        return "無法解析（%s）" % exc
+    if parts.scheme != "https":
+        return "scheme 須為 https，實際為「%s」" % (parts.scheme or "（空）")
+    if not parts.netloc:
+        return "缺少主機名稱"
+    if "." not in parts.netloc.split(":")[0]:
+        return "主機名稱「%s」不像網域" % parts.netloc
+    return None
 
 
 class Linter(object):
@@ -172,9 +194,11 @@ class Linter(object):
             evidenced[term] = (lineno, fields[2], fields[1])
 
             url = fields[4]
-            if url != "" and not url.startswith("https://"):
-                self.err(VERIFICATION_PATH, lineno,
-                         "「來源網址」須為 https:// 開頭的網址，實際為「%s」" % url)
+            if url != "":
+                problem = url_problem(url)
+                if problem is not None:
+                    self.err(VERIFICATION_PATH, lineno,
+                             "「來源網址」%s：「%s」" % (problem, url))
 
         terms_by_name = {}
         for lineno, fields in terms:

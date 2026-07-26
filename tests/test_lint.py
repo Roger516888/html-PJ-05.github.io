@@ -274,12 +274,41 @@ class LintTestCase(unittest.TestCase):
         self.assertFails("verification.tsv:2",
                          "建議用語「完全錯誤的詞」與 terms.tsv 的「影片」不符")
 
+    def _write_url(self, url):
+        lines = list(VALID_VERIFICATION)
+        lines[1] = ("視頻\t影片\t國教院樂詞網\tvideo - 影片\t%s\t\t2026-07-26"
+                    % url)
+        self.write_verification(lines)
+
     def test_verification_url_must_be_https(self):
         """曾漏檢：網址欄位只驗非空，填 not-a-url 也會通過。"""
-        lines = list(VALID_VERIFICATION)
-        lines[1] = "視頻\t影片\t國教院樂詞網\tvideo - 影片\tnot-a-url\t\t2026-07-26"
-        self.write_verification(lines)
-        self.assertFails("verification.tsv:2", "須為 https:// 開頭的網址")
+        self._write_url("not-a-url")
+        self.assertFails("verification.tsv:2", "scheme 須為 https")
+
+    def test_verification_url_rejects_http(self):
+        self._write_url("http://terms.naer.edu.tw/search/")
+        self.assertFails("verification.tsv:2", "scheme 須為 https")
+
+    def test_verification_url_rejects_bare_scheme(self):
+        """曾漏檢：前綴檢查會放過只有 scheme 的「https://」。"""
+        self._write_url("https://")
+        self.assertFails("verification.tsv:2", "缺少主機名稱")
+
+    def test_verification_url_rejects_inner_whitespace(self):
+        """曾漏檢：前綴檢查會放過「https://not a url」。"""
+        self._write_url("https://not a url")
+        self.assertFails("verification.tsv:2", "不得含空白字元")
+
+    def test_verification_url_rejects_non_domain_host(self):
+        self._write_url("https://localhost")
+        self.assertFails("verification.tsv:2", "不像網域")
+
+    def test_verification_url_accepts_query_form(self):
+        """樂詞網佐證採搜尋網址，含 query string 須通過。"""
+        self._write_url("https://terms.naer.edu.tw/search/"
+                        "?query_term=%E5%BD%B1%E7%89%87&match_type=phrase")
+        code, out, err = self.run_lint()
+        self.assertEqual(code, 0, err)
 
     def test_industry_basis_now_requires_evidence(self):
         """「業界慣用」宣稱業界穩定使用，須拿得出佐證；未知應填「待查證」。"""
