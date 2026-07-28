@@ -1,0 +1,4 @@
+# og_video.py 稽核紀錄（含抓取歷程，不進版控）
+og_video_audit.jsonl
+__pycache__/
+*.pyc
