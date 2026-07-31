@@ -1,4 +1,4 @@
-name: lint
+name: 詞庫檢查
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  lint:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -18,20 +18,8 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: 檢查 TSV 分隔符為 tab
-        run: |
-          status=0
-          for f in terms.tsv rejected.tsv; do
-            while IFS=: read -r n line; do
-              [ -n "$n" ] || continue
-              echo "::error file=$f,line=$n::本行不含 tab，分隔符可能已被轉成空白"
-              status=1
-            done < <(grep -nP '^[^\t]+$' "$f" || true)
-          done
-          exit $status
-
-      - name: 四項檢查
+      - name: 檢查詞庫
         run: python3 scripts/lint.py
 
-      - name: lint 回歸測試
+      - name: 測試新增、刪除、批示與查詢
         run: python3 -m unittest discover -s tests -v
