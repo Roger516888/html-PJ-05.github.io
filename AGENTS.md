@@ -16,6 +16,7 @@
 |---|---|
 | `新增：禁語` | `python scripts/terms.py add 禁語` |
 | `新增：禁語｜替代：用語` | `python scripts/terms.py add 禁語 --replacement 用語` |
+| `改：禁語｜替代：用語` | `python scripts/terms.py set 禁語 用語` |
 | `刪除：禁語` | `python scripts/terms.py remove 禁語` |
 | `查詢：禁語` | `python scripts/terms.py query 禁語` |
 | `批次查詢：詞一、詞二` | `python scripts/terms.py query 詞一 詞二` |

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""私人禁語詞庫的新增、刪除與批次查詢工具。"""
+"""私人禁語詞庫的新增、修改、刪除與批次查詢工具。"""
 
 import argparse
 import os
@@ -165,6 +165,29 @@ def command_add(args):
     return 0
 
 
+def command_set(args):
+    """就地修改替代用語，不改變詞條位置。
+
+    先前要改替代用語只能 remove 再 add，中途失敗會留下缺詞的詞庫。
+    """
+    term = clean_value(args.term, "禁語", required=True)
+    replacement = clean_value(args.replacement, "替代用語")
+    entries = load_terms()
+    for index, entry in enumerate(entries):
+        if entry.term != term:
+            continue
+        shown = replacement or "（未指定）"
+        if entry.replacement == replacement:
+            print("未變更｜%s｜替代：%s" % (term, shown))
+            return 0
+        entries[index] = Entry(term, replacement)
+        write_terms(entries)
+        print("已更新｜%s｜替代：%s" % (term, shown))
+        return 0
+    print("更新失敗｜詞庫中沒有「%s」" % term, file=sys.stderr)
+    return 1
+
+
 def command_remove(args):
     term = clean_value(args.term, "禁語", required=True)
     entries = load_terms()
@@ -213,6 +236,12 @@ def build_parser():
     add.add_argument("term", help="要禁用的詞")
     add.add_argument("--replacement", "-r", default="", help="選填替代用語")
     add.set_defaults(handler=command_add)
+
+    setter = commands.add_parser("set", help="修改替代用語")
+    setter.add_argument("term", help="已收錄的禁語")
+    setter.add_argument("replacement", nargs="?", default="",
+                        help="新的替代用語；省略代表清空")
+    setter.set_defaults(handler=command_set)
 
     remove = commands.add_parser("remove", help="刪除禁語")
     remove.add_argument("term", help="要刪除的詞")

@@ -40,6 +40,10 @@ class TermsTestCase(unittest.TestCase):
         with open(self.path, "w", encoding="utf-8", newline="") as handle:
             handle.write(text)
 
+    def read_rows(self):
+        with open(self.path, encoding="utf-8", newline="") as handle:
+            return handle.read().rstrip("\n").split("\n")
+
     def run_script(self, script, *arguments):
         return subprocess.run(
             [sys.executable, script, *arguments],
@@ -160,6 +164,37 @@ class TermsTestCase(unittest.TestCase):
         self.assertIn("詞庫共 2 筆", result.stdout)
         self.assertIn("已收錄｜視頻", result.stdout)
         self.assertIn("已收錄｜絕絕子", result.stdout)
+
+    # -- set：就地修改替代用語 ------------------------------------------
+    def test_set_updates_replacement(self):
+        result = self.run_terms("set", "視頻", "短片")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("已更新｜視頻｜替代：短片", result.stdout)
+        self.assertEqual(self.read_rows(), [HEADER, "視頻\t短片", "絕絕子\t-"])
+
+    def test_set_keeps_position(self):
+        """就地修改不得改變詞條順序（remove+add 會把詞移到檔尾）。"""
+        self.run_terms("set", "視頻", "短片")
+        rows = self.read_rows()
+        self.assertEqual(rows[1].split("\t")[0], "視頻")
+
+    def test_set_can_clear_replacement(self):
+        result = self.run_terms("set", "視頻")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("替代：（未指定）", result.stdout)
+        self.assertEqual(self.read_rows()[1], "視頻\t-")
+
+    def test_set_is_idempotent(self):
+        self.run_terms("set", "視頻", "短片")
+        result = self.run_terms("set", "視頻", "短片")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("未變更", result.stdout)
+
+    def test_set_rejects_unknown_term(self):
+        result = self.run_terms("set", "不存在的詞", "測試")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("詞庫中沒有「不存在的詞」", result.stderr)
+        self.assertEqual(self.read_rows(), VALID_ROWS)
 
 
 if __name__ == "__main__":

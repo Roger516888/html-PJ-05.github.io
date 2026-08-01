@@ -21,5 +21,5 @@ jobs:
       - name: 檢查詞庫
         run: python3 scripts/lint.py
 
-      - name: 測試新增、刪除與批次查詢
+      - name: 測試新增、修改、刪除與批次查詢
         run: python3 -m unittest discover -s tests -v
