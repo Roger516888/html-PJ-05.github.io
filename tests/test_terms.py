@@ -13,11 +13,11 @@ import unittest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TERMS_SCRIPT = os.path.join(ROOT, "scripts", "terms.py")
 LINT_SCRIPT = os.path.join(ROOT, "scripts", "lint.py")
-HEADER = "禁語\t替代用語\t批示"
+HEADER = "禁語\t替代用語"
 VALID_ROWS = [
     HEADER,
-    "視頻\t影片\t避免在正式文件使用",
-    "絕絕子\t-\t-",
+    "視頻\t影片",
+    "絕絕子\t-",
 ]
 
 
@@ -62,13 +62,13 @@ class TermsTestCase(unittest.TestCase):
         self.assertIn("詞庫檢查通過｜禁語 2 筆", result.stdout)
 
     def test_bad_header_fails(self):
-        self.write_rows(["詞\t替代\t備註", *VALID_ROWS[1:]])
+        self.write_rows(["詞\t替代", *VALID_ROWS[1:]])
         result = self.run_lint()
         self.assertEqual(result.returncode, 1)
         self.assertIn("標題列應為", result.stderr)
 
     def test_wrong_field_count_fails(self):
-        self.write_rows([HEADER, "視頻 影片 批示"])
+        self.write_rows([HEADER, "視頻 影片"])
         result = self.run_lint()
         self.assertEqual(result.returncode, 1)
         self.assertIn("分隔符可能已被轉成空白", result.stderr)
@@ -93,25 +93,25 @@ class TermsTestCase(unittest.TestCase):
         self.assertIn("空白行", result.stderr)
 
     def test_empty_term_fails(self):
-        self.write_rows([HEADER, "\t影片\t批示"])
+        self.write_rows([HEADER, "\t影片"])
         result = self.run_lint()
         self.assertEqual(result.returncode, 1)
         self.assertIn("「禁語」欄為空", result.stderr)
 
     def test_empty_optional_field_uses_sentinel(self):
-        self.write_rows([HEADER, "視頻\t影片\t"])
+        self.write_rows([HEADER, "視頻\t"])
         result = self.run_lint()
         self.assertEqual(result.returncode, 1)
         self.assertIn("未指定時請填 -", result.stderr)
 
     def test_duplicate_term_fails(self):
-        self.write_rows([*VALID_ROWS, "視頻\t視訊\t另一筆"])
+        self.write_rows([*VALID_ROWS, "視頻\t視訊"])
         result = self.run_lint()
         self.assertEqual(result.returncode, 1)
         self.assertIn("禁語「視頻」重複", result.stderr)
 
     def test_surrounding_whitespace_fails(self):
-        self.write_rows([HEADER, " 視頻\t影片\t批示"])
+        self.write_rows([HEADER, " 視頻\t影片"])
         result = self.run_lint()
         self.assertEqual(result.returncode, 1)
         self.assertIn("「禁語」欄有多餘空白", result.stderr)
@@ -123,14 +123,11 @@ class TermsTestCase(unittest.TestCase):
         query = self.run_terms("query", "內卷")
         self.assertIn("替代：（未指定）", query.stdout)
 
-    def test_add_with_replacement_and_note(self):
-        result = self.run_terms(
-            "add", "內卷", "--replacement", "過度競爭", "--note", "個人指定"
-        )
+    def test_add_with_replacement(self):
+        result = self.run_terms("add", "內卷", "--replacement", "過度競爭")
         self.assertEqual(result.returncode, 0, result.stderr)
         query = self.run_terms("query", "內卷")
         self.assertIn("替代：過度競爭", query.stdout)
-        self.assertIn("批示：個人指定", query.stdout)
 
     def test_duplicate_add_is_rejected(self):
         result = self.run_terms("add", "視頻")
@@ -147,17 +144,6 @@ class TermsTestCase(unittest.TestCase):
 
     def test_remove_missing_is_rejected(self):
         result = self.run_terms("remove", "不存在")
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("詞庫中沒有", result.stderr)
-
-    def test_note_updates_entry(self):
-        result = self.run_terms("note", "視頻", "只限正式文件")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        query = self.run_terms("query", "視頻")
-        self.assertIn("批示：只限正式文件", query.stdout)
-
-    def test_note_missing_is_rejected(self):
-        result = self.run_terms("note", "不存在", "批示")
         self.assertEqual(result.returncode, 1)
         self.assertIn("詞庫中沒有", result.stderr)
 

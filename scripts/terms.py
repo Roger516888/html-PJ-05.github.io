@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""私人禁語詞庫的新增、刪除、批示與查詢工具。"""
+"""私人禁語詞庫的新增、刪除與批次查詢工具。"""
 
 import argparse
 import os
@@ -12,7 +12,7 @@ from dataclasses import dataclass
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_TERMS_PATH = os.path.join(ROOT, "terms.tsv")
 TERMS_PATH = os.environ.get("TERMS_FILE", DEFAULT_TERMS_PATH)
-HEADER = ("禁語", "替代用語", "批示")
+HEADER = ("禁語", "替代用語")
 EMPTY = "-"
 
 
@@ -20,7 +20,6 @@ EMPTY = "-"
 class Entry:
     term: str
     replacement: str = ""
-    note: str = ""
 
 
 class TermsFileError(Exception):
@@ -89,17 +88,16 @@ def inspect_terms(path=TERMS_PATH):
                     path, line_number, "「%s」欄有多餘空白" % field_name
                 ))
 
-        term, replacement, note = fields
+        term, replacement = fields
         if term == "":
             errors.append(_error(path, line_number, "「禁語」欄為空"))
             continue
-        for field_name, value in (("替代用語", replacement), ("批示", note)):
-            if value == "":
-                errors.append(_error(
-                    path,
-                    line_number,
-                    "「%s」未指定時請填 -" % field_name,
-                ))
+        if replacement == "":
+            errors.append(_error(
+                path,
+                line_number,
+                "「替代用語」未指定時請填 -",
+            ))
         if term in seen:
             errors.append(_error(
                 path,
@@ -111,7 +109,6 @@ def inspect_terms(path=TERMS_PATH):
         entries.append(Entry(
             term,
             "" if replacement == EMPTY else replacement,
-            "" if note == EMPTY else note,
         ))
 
     return entries, errors
@@ -135,7 +132,7 @@ def write_terms(entries, path=TERMS_PATH):
             handle.write("\t".join(HEADER) + "\n")
             for entry in entries:
                 handle.write("\t".join(
-                    (entry.term, entry.replacement or EMPTY, entry.note or EMPTY)
+                    (entry.term, entry.replacement or EMPTY)
                 ) + "\n")
         os.replace(temporary_path, path)
     except Exception:
@@ -158,12 +155,11 @@ def clean_value(value, name, required=False):
 def command_add(args):
     term = clean_value(args.term, "禁語", required=True)
     replacement = clean_value(args.replacement, "替代用語")
-    note = clean_value(args.note, "批示")
     entries = load_terms()
     if any(entry.term == term for entry in entries):
         print("新增失敗｜「%s」已在詞庫中" % term, file=sys.stderr)
         return 1
-    entries.append(Entry(term, replacement, note))
+    entries.append(Entry(term, replacement))
     write_terms(entries)
     print("已新增｜%s｜目前 %d 筆" % (term, len(entries)))
     return 0
@@ -181,32 +177,9 @@ def command_remove(args):
     return 0
 
 
-def command_note(args):
-    term = clean_value(args.term, "禁語", required=True)
-    note = clean_value(args.note, "批示")
-    entries = load_terms()
-    updated = []
-    found = False
-    for entry in entries:
-        if entry.term == term:
-            updated.append(Entry(entry.term, entry.replacement, note))
-            found = True
-        else:
-            updated.append(entry)
-    if not found:
-        print("批示失敗｜詞庫中沒有「%s」" % term, file=sys.stderr)
-        return 1
-    write_terms(updated)
-    print("已更新批示｜%s｜目前 %d 筆" % (term, len(updated)))
-    return 0
-
-
 def _print_entry(entry):
     replacement = entry.replacement or "（未指定）"
-    note = entry.note or "（無）"
-    print("已收錄｜%s｜替代：%s｜批示：%s" % (
-        entry.term, replacement, note
-    ))
+    print("已收錄｜%s｜替代：%s" % (entry.term, replacement))
 
 
 def command_query(args):
@@ -239,17 +212,11 @@ def build_parser():
     add = commands.add_parser("add", help="新增禁語")
     add.add_argument("term", help="要禁用的詞")
     add.add_argument("--replacement", "-r", default="", help="選填替代用語")
-    add.add_argument("--note", "-n", default="", help="選填批示")
     add.set_defaults(handler=command_add)
 
     remove = commands.add_parser("remove", help="刪除禁語")
     remove.add_argument("term", help="要刪除的詞")
     remove.set_defaults(handler=command_remove)
-
-    note = commands.add_parser("note", help="新增或修改批示")
-    note.add_argument("term", help="詞庫中的禁語")
-    note.add_argument("note", help="批示內容；傳入空字串可清除")
-    note.set_defaults(handler=command_note)
 
     query = commands.add_parser("query", help="單筆或批次查詢")
     query.add_argument("terms", nargs="+", help="一個或多個完整禁語")
