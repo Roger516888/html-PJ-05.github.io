@@ -1,0 +1,9 @@
+# TSV 資料檔固定 LF，避免跨平台 checkout 時被轉成 CRLF。
+# 注意：這只管 Git 的換行正規化，不會阻止編輯器把 tab 轉成空格。
+# tab 分隔符的完整性由 scripts/lint.py 與 CI 驗證；.editorconfig 只是編輯器提示，
+# 不構成保證。
+*.tsv text eol=lf
+
+*.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf

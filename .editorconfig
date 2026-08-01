@@ -1,0 +1,22 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+
+# 提示支援 EditorConfig 的編輯器以 hard tab 縮排。
+# 注意：indent_style 規範的是縮排，並不保證保留 TSV 欄位中間的分隔 tab；
+# EditorConfig 沒有可攜的「禁止替換欄位分隔符」屬性。
+# 分隔符完整性由 scripts/lint.py 與 CI 強制驗證。
+[*.tsv]
+indent_style = tab
+trim_trailing_whitespace = false
+
+[*.py]
+indent_style = space
+indent_size = 4
+
+[*.{md,yml,yaml}]
+indent_style = space
+indent_size = 2
