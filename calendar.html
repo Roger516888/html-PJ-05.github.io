@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>動態日曆</title>
+    <link rel="stylesheet" href="calendar.css">
+</head>
+<body>
+    <div class="app">
+        <header class="topbar">
+            <div class="clock">
+                <div id="clock-time" class="clock-time">--:--:--</div>
+                <div id="clock-date" class="clock-date"></div>
+            </div>
+            <button id="theme-toggle" class="icon-btn" type="button" aria-label="切換深色模式" title="切換深色模式">◐</button>
+        </header>
+
+        <main class="layout">
+            <section class="calendar" aria-label="月曆">
+                <div class="cal-head">
+                    <button id="prev-month" class="icon-btn" type="button" aria-label="上個月" title="上個月（←）">‹</button>
+                    <div class="cal-title">
+                        <select id="year-select" aria-label="選擇年份"></select>
+                        <select id="month-select" aria-label="選擇月份"></select>
+                    </div>
+                    <button id="next-month" class="icon-btn" type="button" aria-label="下個月" title="下個月（→）">›</button>
+                    <button id="today-btn" class="today-btn" type="button" title="回到今天（T）">今天</button>
+                </div>
+
+                <div class="weekdays" aria-hidden="true">
+                    <div class="sun">日</div><div>一</div><div>二</div><div>三</div><div>四</div><div>五</div><div class="sat">六</div>
+                </div>
+
+                <div class="grid-viewport">
+                    <div id="grid" class="grid"></div>
+                </div>
+
+                <p id="holiday-status" class="holiday-status"></p>
+            </section>
+
+            <aside class="panel" aria-label="當日行程">
+                <div class="panel-head">
+                    <div>
+                        <div id="panel-date" class="panel-date"></div>
+                        <div id="panel-sub" class="panel-sub"></div>
+                    </div>
+                </div>
+
+                <ul id="event-list" class="event-list"></ul>
+
+                <form id="event-form" class="event-form" autocomplete="off">
+                    <input id="event-title" type="text" placeholder="新增行程，例如：開會" maxlength="40" required>
+                    <div class="form-row">
+                        <input id="event-time" type="time" aria-label="時間">
+                        <select id="event-color" aria-label="分類">
+                            <option value="blue">工作</option>
+                            <option value="green">個人</option>
+                            <option value="orange">提醒</option>
+                            <option value="red">重要</option>
+                            <option value="purple">其他</option>
+                        </select>
+                        <button type="submit" class="add-btn">新增</button>
+                    </div>
+                </form>
+            </aside>
+        </main>
+    </div>
+    <script src="calendar.js"></script>
+</body>
+</html>
