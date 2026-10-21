@@ -2,103 +2,95 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-    <title>動態日曆</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>採購時程日曆</title>
     <link rel="stylesheet" href="calendar.css">
 </head>
 <body>
-    <div class="phone">
-        <!-- 動態島：平常顯示月份與時間，點日期時展開顯示當天資訊 -->
-        <div class="island-zone">
-            <div id="island" class="island" role="button" tabindex="0" aria-expanded="false" aria-label="動態島，點一下顯示所選日期的資訊">
-                <div class="island-compact">
-                    <span id="island-month" class="island-month"></span>
-                    <span class="island-right">
-                        <span class="live-dot"></span>
-                        <span id="island-clock" class="island-clock"></span>
-                    </span>
-                </div>
-                <div id="island-detail" class="island-detail"></div>
+    <main class="sheet">
+        <header class="doc-head">
+            <input id="doc-title" class="doc-title" type="text" placeholder="輸入案名，例如：OOO 系統採購案" maxlength="80" aria-label="案名">
+            <textarea id="doc-note" class="doc-note" rows="1" placeholder="備註（可不填）" maxlength="2000" aria-label="備註"></textarea>
+            <p id="doc-meta" class="doc-meta"></p>
+        </header>
+
+        <!-- 動態島：各節點日期一覽，點節點切換要設定的對象 -->
+        <section id="island" class="island" aria-label="時程摘要">
+            <div class="island-top">
+                <span class="live-dot" aria-hidden="true"></span>
+                <span>點日期設定為</span>
+                <strong id="active-name" class="active-name"></strong>
+                <span class="island-tip">（點下方節點可切換）</span>
             </div>
-        </div>
-        <p id="sr-status" class="sr-only" aria-live="polite"></p>
-
-        <div class="weekdays" aria-hidden="true">
-            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="weekend">六</span><span class="weekend">日</span>
-        </div>
-
-        <section id="cal" class="cal" aria-label="月曆，上下滑動切換月份">
-            <div id="grid" class="grid"></div>
-        </section>
-        <p id="holiday-status" class="holiday-status" hidden></p>
-
-        <section class="agenda" aria-label="當日行程">
-            <div id="agenda-date" class="agenda-date"></div>
-            <div id="agenda-sub" class="agenda-sub"></div>
-            <ul id="agenda-list" class="agenda-list"></ul>
+            <ol id="chips" class="chips"></ol>
+            <p id="readout" class="readout" aria-live="polite"></p>
         </section>
 
-        <!-- 功能列 -->
-        <nav class="dock" aria-label="功能列">
-            <button id="btn-today" class="dock-btn" type="button">
-                <span class="dock-icon">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6" class="fill"/></svg>
-                </span>
-                <span class="dock-label">今天</span>
-            </button>
-            <button id="btn-add" class="dock-btn primary" type="button">
-                <span class="dock-icon">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-                </span>
-                <span class="dock-label">新增</span>
-            </button>
-            <button id="btn-list" class="dock-btn" type="button">
-                <span class="dock-icon">
-                    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1.2" class="fill"/><circle cx="4.5" cy="12" r="1.2" class="fill"/><circle cx="4.5" cy="18" r="1.2" class="fill"/></svg>
-                </span>
-                <span class="dock-label">行程</span>
-            </button>
-            <button id="btn-theme" class="dock-btn" type="button">
-                <span class="dock-icon">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-moon"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/></svg>
-                    <svg viewBox="0 0 24 24" aria-hidden="true" class="icon-sun"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/></svg>
-                </span>
-                <span class="dock-label">外觀</span>
-            </button>
-        </nav>
-    </div>
+        <!-- 列印用：時程摘要表 -->
+        <table class="summary print-only">
+            <thead>
+                <tr><th>節點</th><th>日期</th><th>計算方式</th><th>期間</th></tr>
+            </thead>
+            <tbody id="summary-body"></tbody>
+        </table>
 
-    <!-- 新增行程 -->
-    <dialog id="add-sheet" class="sheet" aria-labelledby="add-title">
-        <form id="add-form" class="sheet-inner" autocomplete="off">
-            <div class="sheet-grip"></div>
-            <h2 id="add-title" class="sheet-title">新增行程</h2>
-            <input id="ev-title" class="field" type="text" placeholder="行程名稱，例如：開會" maxlength="40" required autofocus>
-            <input id="ev-time" class="field" type="time" aria-label="時間（可不填）">
-            <div class="color-picks" role="radiogroup" aria-label="分類">
-                <label><input type="radio" name="color" value="blue" checked><span class="swatch c-blue"></span>工作</label>
-                <label><input type="radio" name="color" value="green"><span class="swatch c-green"></span>個人</label>
-                <label><input type="radio" name="color" value="orange"><span class="swatch c-orange"></span>提醒</label>
-                <label><input type="radio" name="color" value="red"><span class="swatch c-red"></span>重要</label>
-                <label><input type="radio" name="color" value="purple"><span class="swatch c-purple"></span>其他</label>
+        <table class="strip" aria-label="連續週曆">
+            <thead>
+                <tr>
+                    <th class="month-col">月份</th>
+                    <th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th class="weekend">六</th><th class="weekend">日</th>
+                </tr>
+            </thead>
+            <tbody id="weeks"></tbody>
+        </table>
+
+        <p id="foot-note" class="foot-note"></p>
+    </main>
+
+    <!-- 功能列 -->
+    <nav class="toolbar" aria-label="功能列">
+        <button id="btn-today" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6" class="fill"/></svg></span>
+            <span class="tool-label">今天</span>
+        </button>
+        <button id="btn-undo" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h9.5a5 5 0 0 1 0 10H11"/></svg></span>
+            <span class="tool-label">復原</span>
+        </button>
+        <button id="btn-settings" class="tool primary" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg></span>
+            <span class="tool-label">流程設定</span>
+        </button>
+        <button id="btn-print" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3.5h10V9"/><rect x="3.5" y="9" width="17" height="8" rx="2"/><path d="M7 14h10v6.5H7z"/></svg></span>
+            <span class="tool-label">列印</span>
+        </button>
+    </nav>
+
+    <!-- 流程設定 -->
+    <dialog id="settings" class="panel" aria-labelledby="settings-title">
+        <form id="settings-form" class="panel-inner" method="dialog">
+            <h2 id="settings-title" class="panel-title">流程設定</h2>
+            <fieldset class="rule-set">
+                <legend>天數起算方式</legend>
+                <label><input type="radio" name="startRule" value="next"> 次日起算（始日不算入，民法第 120 條）</label>
+                <label><input type="radio" name="startRule" value="same"> 當日起算（起始日算第 1 天）</label>
+            </fieldset>
+            <div class="steps-wrap">
+                <table class="steps">
+                    <thead>
+                        <tr><th>節點名稱</th><th>與前一節點相隔</th><th>遇假日順延</th><th>日期</th><th><span class="sr-only">刪除</span></th></tr>
+                    </thead>
+                    <tbody id="steps-body"></tbody>
+                </table>
             </div>
-            <div class="sheet-actions">
-                <button type="button" class="btn-ghost" data-close>取消</button>
-                <button type="submit" class="btn-primary">儲存</button>
+            <p class="panel-hint">改「日期」會以該節點為基準重新推算其他節點；工作天會扣除週末與國定假日。</p>
+            <div class="panel-actions">
+                <button id="add-step" class="btn" type="button">＋ 新增節點</button>
+                <button id="reset-steps" class="btn" type="button">恢復預設流程</button>
+                <button class="btn primary" type="submit">完成</button>
             </div>
         </form>
-    </dialog>
-
-    <!-- 即將到來的行程 -->
-    <dialog id="list-sheet" class="sheet" aria-labelledby="list-title">
-        <div class="sheet-inner">
-            <div class="sheet-grip"></div>
-            <h2 id="list-title" class="sheet-title">即將到來的行程</h2>
-            <ul id="upcoming-list" class="upcoming-list"></ul>
-            <div class="sheet-actions">
-                <button type="button" class="btn-ghost" data-close>關閉</button>
-            </div>
-        </div>
     </dialog>
 
     <script src="calendar.js"></script>
