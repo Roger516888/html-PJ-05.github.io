@@ -559,6 +559,29 @@ textarea {
     stroke: none;
 }
 
+/* 目前是白天顯示月亮（切到黑夜），黑夜顯示太陽（切回白天） */
+.icon-sun {
+    display: none;
+}
+
+:root[data-theme="dark"] .icon-moon {
+    display: none;
+}
+
+:root[data-theme="dark"] .icon-sun {
+    display: block;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .icon-moon {
+        display: none;
+    }
+
+    :root:not([data-theme="light"]) .icon-sun {
+        display: block;
+    }
+}
+
 .tool.primary .tool-icon {
     background: var(--accent);
     color: #fff;
@@ -618,6 +641,43 @@ textarea {
     padding: 8px 12px 10px;
     border: 1px solid var(--rule);
     border-radius: 10px;
+}
+
+.rule-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.rule-row .rule-set {
+    flex: 1 1 260px;
+    align-items: center;
+}
+
+.start-month {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+}
+
+.mini-input {
+    width: 72px;
+    padding: 5px 8px;
+    border: 1px solid var(--rule);
+    border-radius: 7px;
+    background: var(--paper);
+}
+
+.btn.small {
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.btn:disabled {
+    opacity: 0.45;
+    cursor: default;
 }
 
 .rule-set legend {

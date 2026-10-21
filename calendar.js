@@ -3,6 +3,7 @@
 // 相隔天數可用半天為單位（上午／下午），版面為連續週曆長條，可直接用 A4 直式列印。
 
 const STORE_KEY = 'procure-calendar-v2';
+const THEME_KEY = 'procure-calendar-theme';
 const OLD_STORE_KEY = 'procure-calendar-v1';
 const HOLIDAY_KEY_PREFIX = 'dyn-calendar-holidays-';
 const HOLIDAY_CACHE_DAYS = 7;
@@ -37,6 +38,7 @@ const SHORT_NAMES = {
 };
 const MAX_STEPS = 16;
 const MAX_EXTRA_MONTHS = 36;
+const DEFAULT_START_MONTH = '2025-01';   // 民國 114 年 1 月
 const MAX_OFFSET = 1500;
 const LOOP_LIMIT = 6000;
 
@@ -77,8 +79,13 @@ function mondayOf(date) {
     return addDays(date, -((date.getDay() + 6) % 7));
 }
 
+// 年份依設定顯示民國或西元
+function fmtYear(year) {
+    return state.era === 'ad' ? String(year) : String(year - 1911);
+}
+
 function fmtDate(date) {
-    return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${WEEK_NAMES[date.getDay()]}）`;
+    return `${fmtYear(date.getFullYear())}/${date.getMonth() + 1}/${date.getDate()}（${WEEK_NAMES[date.getDay()]}）`;
 }
 
 function fmtWhen(i) {
@@ -144,6 +151,8 @@ function defaultState() {
         activeId: steps[0].id,
         extraBefore: 0,
         extraAfter: 0,
+        startMonth: DEFAULT_START_MONTH,
+        era: 'roc',
         steps
     };
 }
@@ -178,6 +187,10 @@ function loadState() {
             activeId: ids.includes(saved.activeId) ? saved.activeId : ids[0],
             extraBefore: clampInt(saved.extraBefore, 0, MAX_EXTRA_MONTHS),
             extraAfter: clampInt(saved.extraAfter, 0, MAX_EXTRA_MONTHS),
+            // 沒設定過的沿用預設；按過「改回自動」會存成空字串
+            startMonth: saved.startMonth === undefined ? DEFAULT_START_MONTH
+                : /^\d{4}-\d{2}$/.test(saved.startMonth) ? saved.startMonth : '',
+            era: saved.era === 'ad' ? 'ad' : 'roc',
             steps
         };
     } catch (e) {
@@ -492,6 +505,12 @@ function updateIslandHeight() {
 function stripRange() {
     const today = new Date();
     let min = new Date(today.getFullYear(), today.getMonth(), 1);
+    // 指定了起始月份（例如民國 114 年 1 月）就至少從那個月開始
+    if (state.startMonth) {
+        const [y, m] = state.startMonth.split('-').map(Number);
+        const fixed = new Date(y, m - 1, 1);
+        if (fixed < min) min = fixed;
+    }
     let max = dates[0];
     for (const d of dates) {
         if (d < min) min = d;
@@ -547,7 +566,7 @@ function renderStrip() {
         for (let k = 0; k < 7; k++) {
             const day = addDays(week, k);
             if (day.getDate() === 1) {
-                if (first || day.getMonth() === 0) label.append(el('span', 'year', String(day.getFullYear())));
+                if (first || day.getMonth() === 0) label.append(el('span', 'year', fmtYear(day.getFullYear()) + (state.era === 'ad' ? '' : '年')));
                 label.append(document.createTextNode(`${day.getMonth() + 1}月`));
             }
         }
@@ -836,6 +855,8 @@ function buildStepsTable() {
         updateSlotLock(step);
     });
     document.querySelectorAll('input[name="startRule"]').forEach(r => { r.checked = r.value === state.startRule; });
+    document.querySelectorAll('input[name="era"]').forEach(r => { r.checked = r.value === state.era; });
+    syncStartMonthInputs();
 }
 
 // 相隔含半天時，時段由推算決定，不能手動選
@@ -1036,6 +1057,51 @@ function openSettings() {
     $('settings').showModal();
 }
 
+// ---------- 白天／黑夜色調 ----------
+function currentTheme() {
+    return document.documentElement.dataset.theme ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+}
+
+function applyTheme(theme) {
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
+    $('theme-label').textContent = currentTheme() === 'dark' ? '白天' : '黑夜';
+}
+
+function toggleTheme() {
+    const next = currentTheme() === 'dark' ? 'light' : 'dark';
+    applyTheme(next);
+    storageSet(THEME_KEY, next);
+}
+
+// ---------- 週曆起始月份 ----------
+function syncStartMonthInputs() {
+    const yearInput = $('start-year');
+    $('start-year-unit').textContent = state.era === 'ad' ? '年（西元）' : '年（民國）';
+    if (state.startMonth) {
+        const [y, m] = state.startMonth.split('-').map(Number);
+        yearInput.value = state.era === 'ad' ? y : y - 1911;
+        $('start-month').value = m;
+    } else {
+        yearInput.value = '';
+        $('start-month').value = '';
+    }
+    $('start-clear').disabled = !state.startMonth;
+}
+
+function applyStartMonth() {
+    const yearValue = parseInt($('start-year').value, 10);
+    const month = parseInt($('start-month').value, 10);
+    if (!Number.isFinite(yearValue) || !Number.isFinite(month)) return;
+    // 小於 1000 視為民國年
+    const year = yearValue < 1000 ? yearValue + 1911 : yearValue;
+    if (year < 1950 || year > 2200 || month < 1 || month > 12) return;
+    state.startMonth = `${year}-${pad(month)}`;
+    saveState();
+    refresh();
+    syncStartMonthInputs();
+}
+
 // ---------- 案名、備註 ----------
 function autoGrow(textarea) {
     textarea.style.height = 'auto';
@@ -1107,6 +1173,7 @@ function bindEvents() {
     $('btn-undo').addEventListener('click', undo);
     $('btn-settings').addEventListener('click', openSettings);
     $('btn-print').addEventListener('click', () => window.print());
+    $('btn-theme').addEventListener('click', toggleTheme);
 
     const body = $('steps-body');
     body.addEventListener('input', onStepInput);
@@ -1125,6 +1192,23 @@ function bindEvents() {
         });
     });
 
+    document.querySelectorAll('input[name="era"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            state.era = radio.value === 'ad' ? 'ad' : 'roc';
+            saveState();
+            refresh();
+            syncStartMonthInputs();
+        });
+    });
+    $('start-year').addEventListener('change', applyStartMonth);
+    $('start-month').addEventListener('change', applyStartMonth);
+    $('start-clear').addEventListener('click', () => {
+        state.startMonth = '';
+        saveState();
+        refresh();
+        syncStartMonthInputs();
+    });
+
     document.addEventListener('keydown', e => {
         if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z' &&
             !e.target.closest('input, textarea, select, dialog')) {
@@ -1137,6 +1221,7 @@ function bindEvents() {
 
 // ---------- 初始化 ----------
 function init() {
+    applyTheme(storageGet(THEME_KEY));
     bindEvents();
     syncHeader();
     refresh();
