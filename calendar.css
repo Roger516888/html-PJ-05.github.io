@@ -112,6 +112,8 @@ input {
     overflow: hidden;
     display: flex;
     flex-direction: column;
+    padding-left: 12px;
+    padding-right: 12px;
     transition: background-color 0.3s;
 }
 
@@ -147,7 +149,7 @@ input {
 }
 
 .island.expanded {
-    width: calc(100% - 20px);
+    width: 100%;
     border-radius: 34px;
     cursor: default;
 }
@@ -310,7 +312,7 @@ input {
 
 .weekdays {
     flex: none;
-    padding: 0 12px 6px;
+    padding-bottom: 6px;
     text-align: center;
     font-size: 12px;
     font-weight: 600;
@@ -324,7 +326,7 @@ input {
 /* ---------- 圓形日期 ---------- */
 .cal {
     flex: none;
-    padding: 4px 12px 0;
+    padding-top: 4px;
     touch-action: none;
     user-select: none;
 }
@@ -491,7 +493,7 @@ input {
     flex: 1;
     min-height: 0;
     overflow-y: auto;
-    margin: 12px 12px 0;
+    margin-top: 12px;
     padding: 14px 16px;
     background: var(--surface);
     border-radius: 22px;
@@ -596,7 +598,7 @@ input {
     flex: none;
     display: grid;
     grid-template-columns: repeat(4, 1fr);
-    margin: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    margin: 12px 0 calc(12px + env(safe-area-inset-bottom, 0px));
     padding: 10px 6px 8px;
     background: var(--surface);
     border-radius: 28px;
@@ -907,6 +909,8 @@ input {
         border: 0;
         border-radius: 0;
         box-shadow: none;
+        padding-left: max(16px, env(safe-area-inset-left, 0px));
+        padding-right: max(16px, env(safe-area-inset-right, 0px));
     }
 }
 

@@ -427,7 +427,7 @@ function buildIslandDetail(key) {
 
 function sizeIsland() {
     const detail = $('island-detail');
-    detail.style.width = `${island.parentElement.clientWidth - 20}px`;
+    detail.style.width = `${island.parentElement.clientWidth}px`;
     island.style.height = `${detail.offsetHeight}px`;
 }
 
@@ -566,11 +566,7 @@ function tick() {
 
 // ---------- 深色模式 ----------
 function applyTheme(theme) {
-    if (theme === 'light' || theme === 'dark') {
-        document.documentElement.dataset.theme = theme;
-    } else {
-        delete document.documentElement.dataset.theme;
-    }
+    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
 }
 
 function toggleTheme() {
