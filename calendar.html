@@ -20,7 +20,7 @@
                 <span class="live-dot" aria-hidden="true"></span>
                 <span>點日期設定為</span>
                 <strong id="active-name" class="active-name"></strong>
-                <span class="island-tip">（點下方節點可切換）</span>
+                <span class="island-tip">（點上方節點或格子裡的標籤可切換，也可直接拖曳標籤；格子上半部＝上午、下半部＝下午）</span>
             </div>
             <ol id="chips" class="chips"></ol>
             <p id="readout" class="readout" aria-live="polite"></p>
@@ -123,7 +123,7 @@
                     <tbody id="steps-body"></tbody>
                 </table>
             </div>
-            <p class="panel-hint">拖曳左邊的 ⠿ 可調整中間節點的順序（也可選取後按 ↑↓），按 ＋ 在該列下方插入新節點。相隔天數可填 0.5 代表半天：上午加半天到下午，下午加半天到隔天上午。改「日期」會以該節點為基準重新推算其他節點。</p>
+            <p class="panel-hint">拖曳左邊的 ⠿ 可調整中間節點的順序（也可選取後按 ↑↓），按 ＋ 在該列下方插入新節點。相隔天數可填 0.5 代表半天：上午加半天到下午，下午加半天到隔天上午。改某個節點的「日期」只會調整它與前一節點的相隔天數，並帶動後面的節點，前面的節點不會動；要整個時程平移，請改第一個節點。</p>
             <div class="panel-actions">
                 <button id="add-step" class="btn" type="button">＋ 在最後一個節點前新增</button>
                 <button id="reset-steps" class="btn" type="button">恢復預設流程</button>

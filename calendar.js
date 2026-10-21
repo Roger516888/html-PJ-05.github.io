@@ -233,7 +233,7 @@ function undo() {
     syncHeader();
     if ($('settings').open) buildStepsTable();
     updateUndoButton();
-    showReadout(toKey(dates[indexOf(state.anchorId)]));
+    showReadout(toKey(dates[0]));
 }
 
 function updateUndoButton() {
@@ -486,7 +486,6 @@ function renderIsland() {
         const rule = i === 0 ? '起點' : `+${offsetText(step)}`;
         chip.append(el('span', 'chip-rule', rule + (rolled[i] ? '・順延' : '')));
         if (step.note) chip.append(el('span', 'chip-note', step.note));
-        if (step.id === state.anchorId) chip.append(el('span', 'chip-tag', '基準'));
         const li = el('li');
         li.append(chip);
         list.append(li);
@@ -615,6 +614,7 @@ function renderStrip() {
                 const pills = el('span', 'pills');
                 ms.forEach(i => {
                     const pill = el('span', 'pill');
+                    pill.dataset.id = state.steps[i].id;
                     pill.style.setProperty('--c', state.steps[i].color);
                     pill.title = (slots[i] !== 'day' ? SLOT_NAMES[slots[i]] + ' ' : '') + state.steps[i].name + (rolled[i] ? '（遇假日順延）' : '');
                     if (slots[i] !== 'day') pill.append(el('span', 'slot', SLOT_NAMES[slots[i]]));
@@ -639,7 +639,7 @@ function renderSummary() {
         const name = el('td');
         const swatch = el('span', 'swatch');
         swatch.style.setProperty('--c', step.color);
-        name.append(swatch, document.createTextNode(step.name + (step.id === state.anchorId ? '（基準）' : '')));
+        name.append(swatch, document.createTextNode(step.name));
         tr.append(name);
         tr.append(el('td', '', fmtWhen(i) + (rolled[i] ? '（遇假日順延）' : '')));
         tr.append(el('td', '', ruleText(i)));
@@ -721,29 +721,178 @@ function showReadout(key, prefix) {
 }
 
 // ---------- 設定節點日期 ----------
-function setMilestone(id, key) {
+// 整數天數：依起算方式換算從 prev 到 d 要相隔幾天（工作天只數上班日）
+function wholeBetween(prev, d, step) {
+    if (step.unit === 'cal') {
+        const diff = diffDays(prev, d);
+        return state.startRule === 'same' ? (diff === 0 ? 0 : diff + 1) : diff;
+    }
+    let count = 0;
+    let x = state.startRule === 'same' ? prev : addDays(prev, 1);
+    for (let guard = 0; x <= d && guard < LOOP_LIMIT; guard++) {
+        if (isWorkday(x)) count++;
+        x = addDays(x, 1);
+    }
+    // 點到非上班日：以工作天計會落在下一個上班日
+    if (!isWorkday(d) && d > prev) count++;
+    return count;
+}
+
+// 依點選的日期與時段反推「與前一節點相隔幾天」；比前一節點早則回傳 null
+function offsetFor(prev, prevSlot, target, slot, step) {
+    if (target < prev) return null;
+    if (slot === 'day') return { offset: wholeBetween(prev, target, step), half: false };
+    // 以半天為單位比較：上午、全天算前半天，下午算後半天
+    const h = 2 * diffDays(prev, target) + (slot === 'pm' ? 1 : 0) - (prevSlot === 'pm' ? 1 : 0);
+    if (h < 0) return null;
+    if (h % 2 === 0) return { offset: wholeBetween(prev, target, step), half: false };
+    // 差半天：前一節點在下午時，加半天會到隔天上午，所以整數天數算到前一天
+    const d = prevSlot === 'pm' ? nextDay(target, step.unit, -1) : target;
+    return { offset: wholeBetween(prev, d, step) + 0.5, half: true };
+}
+
+// 有分上午、下午的節點（時段不是全天，或相隔含半天）
+function isHalfType(step) {
+    return step.slot !== 'day' || step.offset % 1 !== 0;
+}
+
+let readoutLockUntil = 0;
+
+// 設定某個節點的日期（與時段）：只調整它與前一節點的間隔，並帶動後面的節點；前面的節點不動
+function setMilestone(id, key, half) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return;
+    const i = indexOf(id);
+    const step = state.steps[i];
+    const target = fromKey(key);
+    // 全天的節點不分上下午；分上下午的節點沒指定時沿用目前的時段
+    const slot = !isHalfType(step) ? 'day' : (half || slots[i] || step.slot);
+
+    let result = null;
+    if (i > 0) {
+        result = offsetFor(dates[i - 1], slots[i - 1], target, slot, step);
+        if (!result) {
+            const out = $('readout');
+            out.replaceChildren(el('strong', 'warn', `「${step.name}」不能早於前一個節點「${state.steps[i - 1].name}」（${fmtWhen(i - 1)}）。`),
+                el('span', '', `要整個時程提前，請改「${state.steps[0].name}」。`));
+            readoutLockUntil = Date.now() + 2500;
+            if ($('settings').open) syncStepDates();
+            return;
+        }
+    }
+
     const before = cellOf(key);
     const beforeTop = before ? before.getBoundingClientRect().top : null;
     snapshot();
-    // 半天推算出來的時段，設為基準時沿用目前的時段
-    const i = indexOf(id);
-    if (slots[i]) state.steps[i].slot = slots[i];
-    state.anchorId = id;
-    state.anchorDate = key;
+    step.slot = slot;
+    if (i === 0) {
+        state.anchorId = step.id;
+        state.anchorDate = key;
+    } else {
+        step.offset = clampHalf(result.offset);
+    }
     saveState();
     refresh();
+    if ($('settings').open) buildStepsTable();
+
     // 版面範圍可能改變，讓點到的格子留在原來的位置
     const after = cellOf(key);
     if (after && beforeTop !== null) window.scrollBy(0, after.getBoundingClientRect().top - beforeTop);
-    showReadout(key, `已設定「${state.steps[i].name}」：`);
-    flash(key);
+
+    const landed = toKey(dates[i]);
+    const out = $('readout');
+    out.replaceChildren(el('span', '', `已設定「${step.name}」：`), el('strong', '', fmtWhen(i)));
+    if (i > 0) {
+        out.append(el('span', '', `｜與「${state.steps[i - 1].name}」相隔 ${offsetText(step)}` +
+            (landed !== key ? `（${fmtDate(target)}不是上班日，${rolled[i] ? '遇假日順延' : '以工作天計'}到這天）` : '')));
+    }
+    // 剛設定完先保留這段說明，不被滑鼠移動的提示蓋掉
+    readoutLockUntil = Date.now() + 2500;
+    flash(landed);
 }
 
 function setActive(id) {
     state.activeId = id;
     saveState();
     renderIsland();
+}
+
+// ---------- 格子上半部＝上午、下半部＝下午；標籤可點選或拖曳 ----------
+let dragState = null;
+let justDragged = false;
+let markedCell = null;
+
+function halfAt(btn, y) {
+    const rect = btn.getBoundingClientRect();
+    return y < rect.top + rect.height / 2 ? 'am' : 'pm';
+}
+
+function markHalf(btn, half) {
+    if (markedCell && markedCell !== btn) markedCell.classList.remove('hover-am', 'hover-pm');
+    markedCell = btn;
+    if (!btn) return;
+    btn.classList.toggle('hover-am', half === 'am');
+    btn.classList.toggle('hover-pm', half === 'pm');
+}
+
+function selectFromPill(id) {
+    setActive(id);
+    const step = state.steps[indexOf(id)];
+    const out = $('readout');
+    out.replaceChildren(el('span', '', '已選取'), el('strong', '', `「${step.name}」`),
+        el('span', '', isHalfType(step) ? '：點日期上半部＝上午、下半部＝下午，也可以直接拖曳標籤。' : '：點日期或直接拖曳標籤即可移動。'));
+    readoutLockUntil = Date.now() + 2500;
+}
+
+function startPillDrag(e) {
+    const pill = e.target.closest('.pill');
+    if (!pill || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    dragState = { id: pill.dataset.id, x: e.clientX, y: e.clientY, ghost: null, pill };
+    window.addEventListener('pointermove', movePillDrag);
+    window.addEventListener('pointerup', endPillDrag);
+    window.addEventListener('pointercancel', endPillDrag);
+}
+
+function cellUnder(x, y) {
+    const hit = document.elementFromPoint(x, y);
+    return hit ? hit.closest('#weeks .day') : null;
+}
+
+function movePillDrag(e) {
+    if (!dragState) return;
+    if (!dragState.ghost) {
+        if (Math.hypot(e.clientX - dragState.x, e.clientY - dragState.y) < 6) return;
+        const ghost = dragState.pill.cloneNode(true);
+        ghost.classList.add('drag-ghost');
+        document.body.append(ghost);
+        dragState.ghost = ghost;
+        dragState.pill.classList.add('dragging');
+    }
+    e.preventDefault();
+    dragState.ghost.style.left = `${e.clientX}px`;
+    dragState.ghost.style.top = `${e.clientY}px`;
+    const btn = cellUnder(e.clientX, e.clientY);
+    const step = state.steps[indexOf(dragState.id)];
+    markHalf(btn, btn && isHalfType(step) ? halfAt(btn, e.clientY) : 'day');
+    if (btn) showReadout(btn.dataset.date, `把「${step.name}」移到：`);
+}
+
+function endPillDrag(e) {
+    window.removeEventListener('pointermove', movePillDrag);
+    window.removeEventListener('pointerup', endPillDrag);
+    window.removeEventListener('pointercancel', endPillDrag);
+    const drag = dragState;
+    dragState = null;
+    if (!drag || !drag.ghost) return;
+    drag.ghost.remove();
+    drag.pill.classList.remove('dragging');
+    markHalf(null);
+    // 拖曳結束後瀏覽器可能補送一次 click，先擋掉
+    justDragged = true;
+    setTimeout(() => { justDragged = false; }, 0);
+    const btn = e.type === 'pointerup' ? cellUnder(e.clientX, e.clientY) : null;
+    if (!btn) return;
+    setActive(drag.id);
+    setMilestone(drag.id, btn.dataset.date, halfAt(btn, e.clientY));
 }
 
 // ---------- 流程設定 ----------
@@ -955,12 +1104,11 @@ function deleteStep(id) {
     if (state.steps.length <= 2) return;
     const i = indexOf(id);
     snapshot();
-    // 刪掉的是基準節點時，改用相鄰節點當基準並保留它目前的日期
-    if (id === state.anchorId) {
-        const keep = i === 0 ? 1 : i - 1;
-        state.anchorId = state.steps[keep].id;
-        state.anchorDate = toKey(dates[keep]);
-        state.steps[keep].slot = slots[keep];
+    // 刪掉的是第一個節點時，改由下一個節點當起點並保留它目前的日期
+    if (i === 0) {
+        state.anchorId = state.steps[1].id;
+        state.anchorDate = toKey(dates[1]);
+        state.steps[1].slot = slots[1];
     }
     state.steps.splice(i, 1);
     if (id === state.activeId) state.activeId = state.steps[Math.min(i, state.steps.length - 1)].id;
@@ -1121,13 +1269,28 @@ function syncHeader() {
 function bindEvents() {
     const weeks = $('weeks');
     weeks.addEventListener('click', e => {
+        if (justDragged) return;
+        const pill = e.target.closest('.pill');
+        if (pill) {
+            selectFromPill(pill.dataset.id);
+            return;
+        }
         const btn = e.target.closest('.day');
-        if (btn) setMilestone(state.activeId, btn.dataset.date);
+        // 用鍵盤按的沒有滑鼠位置，沿用目前的時段
+        if (btn) setMilestone(state.activeId, btn.dataset.date, e.detail ? halfAt(btn, e.clientY) : undefined);
     });
     weeks.addEventListener('mouseover', e => {
         const btn = e.target.closest('.day');
-        if (btn) showReadout(btn.dataset.date);
+        if (btn && Date.now() > readoutLockUntil) showReadout(btn.dataset.date);
     });
+    weeks.addEventListener('mousemove', e => {
+        if (dragState) return;
+        const btn = e.target.closest('.day');
+        const step = state.steps[indexOf(state.activeId)];
+        markHalf(btn && !e.target.closest('.pill') && isHalfType(step) ? btn : null, btn ? halfAt(btn, e.clientY) : '');
+    });
+    weeks.addEventListener('mouseleave', () => markHalf(null));
+    weeks.addEventListener('pointerdown', startPillDrag);
     weeks.addEventListener('focusin', e => {
         const btn = e.target.closest('.day');
         if (btn) showReadout(btn.dataset.date);
@@ -1223,11 +1386,22 @@ function bindEvents() {
 }
 
 // ---------- 初始化 ----------
+// 舊版可用任何節點當基準；現在一律以第一個節點為起點，換算後保留各節點目前的日期
+function normalizeAnchor() {
+    if (state.anchorId === state.steps[0].id) return;
+    state.anchorDate = toKey(dates[0]);
+    state.anchorId = state.steps[0].id;
+    state.steps[0].slot = slots[0];
+    saveState();
+    refresh();
+}
+
 function init() {
     applyTheme(storageGet(THEME_KEY));
     bindEvents();
     syncHeader();
     refresh();
+    normalizeAnchor();
     updateUndoButton();
     showReadout(state.anchorDate);
 }

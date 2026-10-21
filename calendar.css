@@ -9,6 +9,7 @@
     --cell: #ffffff;
     --cell-alt: #f4f6f9;
     --accent: #2557d6;
+    --half-hint: rgba(37, 87, 214, 0.14);
     --holiday: #d0342c;
     --workday: #b86e00;
     --island: #11151b;
@@ -29,6 +30,7 @@
     --cell: #1a2029;
     --cell-alt: #1f2631;
     --accent: #6c9cff;
+    --half-hint: rgba(108, 156, 255, 0.2);
     --holiday: #ff6b63;
     --workday: #f0a43a;
     --island: #05070a;
@@ -49,6 +51,7 @@
         --cell: #1a2029;
         --cell-alt: #1f2631;
         --accent: #6c9cff;
+        --half-hint: rgba(108, 156, 255, 0.2);
         --holiday: #ff6b63;
         --workday: #f0a43a;
         --island: #05070a;
@@ -289,6 +292,10 @@ textarea {
     color: var(--island-ink);
 }
 
+.readout .warn {
+    color: #ffb4a8;
+}
+
 .readout .muted {
     color: var(--island-muted);
 }
@@ -343,6 +350,7 @@ textarea {
 }
 
 .day {
+    position: relative;
     display: flex;
     flex-direction: column;
     gap: 1px;
@@ -430,6 +438,52 @@ textarea {
     flex-wrap: wrap;
     gap: 2px;
     margin-top: auto;
+}
+
+/* 滑過格子時標出會設定在上午或下午 */
+.day.hover-am::after,
+.day.hover-pm::after {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 6px;
+    background: var(--half-hint);
+    color: var(--accent);
+    font-size: 10px;
+    font-weight: 700;
+    pointer-events: none;
+}
+
+.day.hover-am::after {
+    content: "上午";
+    top: 0;
+}
+
+.day.hover-pm::after {
+    content: "下午";
+    bottom: 0;
+}
+
+.pill[data-id] {
+    cursor: grab;
+    touch-action: none;
+}
+
+.pill.dragging {
+    opacity: 0.35;
+}
+
+.drag-ghost {
+    position: fixed;
+    z-index: 50;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+    cursor: grabbing;
 }
 
 /* 「上午／下午」後面至少放得下「POC作業」或四個國字 */
