@@ -1,5 +1,5 @@
-// ===== 動態日曆 =====
-// 功能：月份切換動畫、即時時鐘、農曆、台灣國定假日（線上載入）、每日行程（存在瀏覽器）
+// ===== 動態日曆（手機版小工具）=====
+// 版面依示意圖：上方動態島、星期一開頭的圓形日期、上下滑動切換月份、底部四顆功能鍵
 
 const EVENTS_KEY = 'dyn-calendar-events';
 const THEME_KEY = 'dyn-calendar-theme';
@@ -11,10 +11,22 @@ const HOLIDAY_SOURCES = [
 ];
 const WEEK_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 const COLOR_NAMES = { blue: '工作', green: '個人', orange: '提醒', red: '重要', purple: '其他' };
-const MAX_CHIPS = 2;
+// 圓圈裡放不下的節日名稱改用簡稱
+const SHORT_NAMES = {
+    '開國紀念日': '元旦',
+    '農曆除夕': '除夕',
+    '和平紀念日': '和平紀念',
+    '兒童節及民族掃墓節': '兒童節',
+    '孔子誕辰紀念日': '教師節',
+    '臺灣光復暨金門古寧頭大捷紀念日': '光復節',
+    '行憲紀念日': '行憲紀念'
+};
+const ISLAND_AUTO_CLOSE = 4000;
+const SWIPE_THRESHOLD = 60;
 
 const $ = id => document.getElementById(id);
 const grid = $('grid');
+const island = $('island');
 
 const state = {
     viewYear: 0,
@@ -60,6 +72,12 @@ function storageSet(key, value) {
     } catch (e) {
         // 無痕模式或停用儲存空間時忽略，日曆仍可正常使用
     }
+}
+
+function restartAnimation(node, className) {
+    node.classList.remove(className);
+    void node.offsetWidth;
+    node.classList.add(className);
 }
 
 // ---------- 農曆 ----------
@@ -138,7 +156,6 @@ async function ensureHolidays(year) {
 
     if (!state.holidays[year]) {
         state.holidays[year] = { status: 'loading', days: {} };
-        updateHolidayStatus();
     }
 
     const data = await fetchHolidayYear(year);
@@ -149,7 +166,8 @@ async function ensureHolidays(year) {
         state.holidays[year] = { status: 'failed', days: {} };
     }
     refreshAllCells();
-    renderPanel();
+    renderAgenda();
+    refreshIsland();
     updateHolidayStatus();
 }
 
@@ -166,16 +184,17 @@ function getDayInfo(date) {
     return { off: info.isHoliday, label: info.isHoliday ? info.description : '', makeupWorkday: false };
 }
 
+function shortLabel(label) {
+    const part = label.split('/').pop();
+    const name = SHORT_NAMES[label] || SHORT_NAMES[part] || part;
+    return name.length > 4 ? name.slice(0, 4) : name;
+}
+
 function updateHolidayStatus() {
     const status = state.holidays[state.viewYear];
     const text = $('holiday-status');
-    if (!status || status.status === 'loading') {
-        text.textContent = '假日資料載入中…';
-    } else if (status.status === 'failed') {
-        text.textContent = `無法載入 ${state.viewYear} 年假日資料，目前僅標示週末`;
-    } else {
-        text.textContent = '假日資料來源：政府行政機關辦公日曆表';
-    }
+    text.hidden = !(status && status.status === 'failed');
+    text.textContent = `無法載入 ${state.viewYear} 年假日資料，目前僅標示週末`;
 }
 
 // ---------- 行程資料 ----------
@@ -222,52 +241,58 @@ function removeEvent(key, id) {
     saveEvents();
 }
 
-// ---------- 月曆格子 ----------
+// ---------- 日期文字 ----------
+function dateTitle(date) {
+    return `${date.getMonth() + 1}月${date.getDate()}日 星期${WEEK_NAMES[date.getDay()]}`;
+}
+
+function dateSub(date) {
+    const info = getDayInfo(date);
+    const lunar = getLunar(date);
+    const sub = [];
+    if (lunar) sub.push(`農曆${lunar.month}${lunar.day}`);
+    if (info.label) sub.push(info.label);
+    return sub.join(' · ');
+}
+
+// ---------- 圓形日期 ----------
 function fillCell(cell, date) {
     const key = toKey(date);
     const info = getDayInfo(date);
     const lunar = getLunar(date);
     const events = getEvents(key);
+    const isToday = key === state.todayKey;
+    const isSelected = key === state.selected;
 
-    cell.classList.toggle('other', date.getMonth() !== state.viewMonth);
-    cell.classList.toggle('today', key === state.todayKey);
-    cell.classList.toggle('selected', key === state.selected);
+    cell.classList.toggle('today', isToday);
+    cell.classList.toggle('selected', isSelected);
     cell.classList.toggle('off', info.off);
-    cell.setAttribute('aria-pressed', key === state.selected ? 'true' : 'false');
-    if (key === state.todayKey) {
+    cell.setAttribute('aria-pressed', String(isSelected));
+    if (isToday) {
         cell.setAttribute('aria-current', 'date');
     } else {
         cell.removeAttribute('aria-current');
     }
 
-    const label = [`${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日 星期${WEEK_NAMES[date.getDay()]}`];
+    const label = [`${date.getFullYear()}年${dateTitle(date)}`];
     if (info.label) label.push(info.label);
     if (events.length) label.push(`${events.length} 個行程`);
     cell.setAttribute('aria-label', label.join('，'));
 
-    cell.replaceChildren();
-
-    const top = el('div', 'day-top');
-    top.append(el('span', 'day-num', String(date.getDate())));
-    if (lunar) {
-        top.append(el('span', 'lunar' + (lunar.isFirst ? ' month-start' : ''), lunar.isFirst ? lunar.month : lunar.day));
+    const circle = el('span', 'circle');
+    circle.append(el('span', 'num', String(date.getDate())));
+    if (info.label && !info.makeupWorkday) {
+        circle.append(el('span', 'lunar holiday', shortLabel(info.label)));
+    } else if (lunar) {
+        circle.append(el('span', 'lunar' + (lunar.isFirst ? ' month-start' : ''), lunar.isFirst ? lunar.month : lunar.day));
     }
-    cell.append(top);
+    if (info.makeupWorkday) circle.append(el('span', 'badge', '班'));
 
-    if (info.label) {
-        cell.append(el('div', 'tag ' + (info.makeupWorkday ? 'workday' : 'holiday'), info.label));
+    const dots = el('span', 'dots');
+    for (const ev of events.slice(0, 3)) {
+        dots.append(el('span', `dot c-${ev.color}`));
     }
-
-    if (events.length) {
-        const chips = el('div', 'chips');
-        for (const ev of events.slice(0, MAX_CHIPS)) {
-            chips.append(el('div', `chip c-${ev.color}`, (ev.time ? ev.time + ' ' : '') + ev.title));
-        }
-        cell.append(chips);
-        if (events.length > MAX_CHIPS) {
-            cell.append(el('div', 'more', `+${events.length - MAX_CHIPS} 個`));
-        }
-    }
+    cell.replaceChildren(circle, dots);
 }
 
 function refreshCell(key) {
@@ -279,49 +304,154 @@ function refreshAllCells() {
     grid.querySelectorAll('.day').forEach(cell => fillCell(cell, fromKey(cell.dataset.date)));
 }
 
-function renderGrid(direction) {
-    const first = new Date(state.viewYear, state.viewMonth, 1);
-    const start = new Date(state.viewYear, state.viewMonth, 1 - first.getDay());
-    const end = new Date(start.getFullYear(), start.getMonth(), start.getDate() + 41);
+function renderGrid(direction = 0) {
+    ensureHolidays(state.viewYear);
 
-    // 月曆前後可能跨年，兩個年份的假日都要載入（有快取時會立即可用）
-    new Set([start.getFullYear(), end.getFullYear()]).forEach(ensureHolidays);
+    const first = new Date(state.viewYear, state.viewMonth, 1);
+    const offset = (first.getDay() + 6) % 7; // 星期一開頭
+    const days = new Date(state.viewYear, state.viewMonth + 1, 0).getDate();
 
     const cells = [];
-    for (let i = 0; i < 42; i++) {
-        const date = new Date(start.getFullYear(), start.getMonth(), start.getDate() + i);
-        const cell = el('button', 'day');
+    for (let i = 0; i < offset; i++) {
+        cells.push(el('span', 'cell blank'));
+    }
+    for (let d = 1; d <= days; d++) {
+        const date = new Date(state.viewYear, state.viewMonth, d);
+        const cell = el('button', 'cell day');
         cell.type = 'button';
         cell.dataset.date = toKey(date);
-        cell.style.setProperty('--i', i);
+        cell.style.setProperty('--i', offset + d - 1);
         fillCell(cell, date);
         cells.push(cell);
     }
 
-    grid.classList.remove('slide-next', 'slide-prev');
     grid.replaceChildren(...cells);
-    if (direction) {
-        void grid.offsetWidth; // 重新觸發動畫
-        grid.classList.add(direction > 0 ? 'slide-next' : 'slide-prev');
+    grid.style.transform = '';
+    grid.style.opacity = '';
+    grid.classList.remove('from-below', 'from-above');
+    if (direction) restartAnimation(grid, direction > 0 ? 'from-below' : 'from-above');
+}
+
+// ---------- 當日行程 ----------
+function eventItem(key, ev) {
+    const item = el('li', 'ev-item');
+    item.append(el('span', `ev-bar c-${ev.color}`));
+
+    const body = el('div', 'ev-body');
+    body.append(el('div', 'ev-title', ev.title));
+    body.append(el('div', 'ev-meta', `${ev.time || '全天'} · ${COLOR_NAMES[ev.color] || '其他'}`));
+    item.append(body);
+
+    const del = el('button', 'del-btn', '✕');
+    del.type = 'button';
+    del.setAttribute('aria-label', `刪除「${ev.title}」`);
+    del.addEventListener('click', () => {
+        const finish = () => {
+            removeEvent(key, ev.id);
+            refreshCell(key);
+            renderAgenda();
+            refreshIsland();
+        };
+        item.classList.add('removing');
+        // 關閉動畫時 animationend 不會觸發
+        if (getComputedStyle(item).animationName === 'none') {
+            finish();
+        } else {
+            item.addEventListener('animationend', finish, { once: true });
+        }
+    });
+    item.append(del);
+    return item;
+}
+
+function renderAgenda() {
+    const date = fromKey(state.selected);
+    $('agenda-date').textContent = dateTitle(date);
+    $('agenda-sub').textContent = dateSub(date);
+
+    const list = $('agenda-list');
+    const events = getEvents(state.selected);
+    list.replaceChildren();
+
+    if (!events.length) {
+        const empty = el('li', 'empty');
+        empty.append(el('div', '', '這天沒有行程'));
+        empty.append(el('div', 'hint', '按下方「新增」加入行程・上下滑動月曆切換月份'));
+        list.append(empty);
+        return;
+    }
+    for (const ev of events) list.append(eventItem(state.selected, ev));
+}
+
+// ---------- 動態島 ----------
+let islandTimer = 0;
+
+function updateIslandMonth(animate) {
+    const month = $('island-month');
+    const text = `${state.viewYear}年${state.viewMonth + 1}月`;
+    month.textContent = text;
+    $('sr-status').textContent = text;
+    if (animate) {
+        restartAnimation(island, 'bump');
+        restartAnimation(month, 'roll');
     }
 }
 
-function renderHeader() {
-    const yearSelect = $('year-select');
-    yearSelect.replaceChildren();
-    for (let y = state.viewYear - 10; y <= state.viewYear + 10; y++) {
-        const opt = el('option', '', `${y}年`);
-        opt.value = y;
-        yearSelect.append(opt);
+function buildIslandDetail(key) {
+    const date = fromKey(key);
+    const info = getDayInfo(date);
+    const events = getEvents(key);
+    const box = $('island-detail');
+
+    const head = el('div', 'isl-head');
+    head.append(el('div', 'isl-day' + (info.off ? ' off' : ''), String(date.getDate())));
+    const text = el('div', 'isl-text');
+    text.append(el('div', 'isl-title', `${date.getFullYear()}年${date.getMonth() + 1}月 星期${WEEK_NAMES[date.getDay()]}`));
+    text.append(el('div', 'isl-sub', dateSub(date)));
+    head.append(text);
+    box.replaceChildren(head);
+
+    if (!events.length) {
+        box.append(el('div', 'isl-empty', '這天沒有行程'));
+        return;
     }
-    yearSelect.value = state.viewYear;
-    $('month-select').value = state.viewMonth;
+    const list = el('ul', 'isl-events');
+    for (const ev of events.slice(0, 3)) {
+        const li = el('li');
+        li.append(el('span', `dot c-${ev.color}`), el('span', 'isl-time', ev.time || '全天'), el('span', 'isl-ev', ev.title));
+        list.append(li);
+    }
+    if (events.length > 3) list.append(el('li', 'isl-more', `還有 ${events.length - 3} 個行程`));
+    box.append(list);
 }
 
-function render(direction = 0) {
-    renderHeader();
-    renderGrid(direction);
-    updateHolidayStatus();
+function sizeIsland() {
+    const detail = $('island-detail');
+    detail.style.width = `${island.parentElement.clientWidth - 20}px`;
+    island.style.height = `${detail.offsetHeight}px`;
+}
+
+function expandIsland(key) {
+    buildIslandDetail(key);
+    island.classList.add('expanded');
+    island.setAttribute('aria-expanded', 'true');
+    sizeIsland();
+    clearTimeout(islandTimer);
+    islandTimer = setTimeout(collapseIsland, ISLAND_AUTO_CLOSE);
+}
+
+function collapseIsland() {
+    clearTimeout(islandTimer);
+    island.classList.remove('expanded');
+    island.setAttribute('aria-expanded', 'false');
+    island.style.height = '';
+}
+
+// 展開中時更新內容（不重設自動收合的計時）
+function refreshIsland() {
+    if (!island.classList.contains('expanded')) return;
+    buildIslandDetail(state.selected);
+    sizeIsland();
 }
 
 // ---------- 月份切換 ----------
@@ -331,11 +461,20 @@ function goToMonth(year, month) {
     if (target.getTime() === current.getTime()) return;
     state.viewYear = target.getFullYear();
     state.viewMonth = target.getMonth();
-    render(target > current ? 1 : -1);
+    collapseIsland();
+    renderGrid(target > current ? 1 : -1);
+    updateIslandMonth(true);
+    updateHolidayStatus();
 }
 
+// 滑動換月：新月份若包含今天就選今天，否則選 1 號
 function shiftMonth(delta) {
-    goToMonth(state.viewYear, state.viewMonth + delta);
+    const target = new Date(state.viewYear, state.viewMonth + delta, 1);
+    const today = fromKey(state.todayKey);
+    const sameMonth = today.getFullYear() === target.getFullYear() && today.getMonth() === target.getMonth();
+    state.selected = sameMonth ? state.todayKey : toKey(target);
+    goToMonth(target.getFullYear(), target.getMonth());
+    renderAgenda();
 }
 
 function selectDate(key) {
@@ -349,75 +488,75 @@ function selectDate(key) {
         if (previous) refreshCell(previous);
         refreshCell(key);
     }
-    renderPanel();
+    renderAgenda();
+    expandIsland(key);
 }
 
-// ---------- 右側面板 ----------
-function renderPanel() {
-    const key = state.selected;
-    const date = fromKey(key);
-    const info = getDayInfo(date);
-    const lunar = getLunar(date);
+// ---------- 底部面板 ----------
+function openSheet(dialog) {
+    collapseIsland();
+    dialog.classList.remove('closing');
+    dialog.showModal();
+}
 
-    $('panel-date').textContent = `${date.getMonth() + 1}月${date.getDate()}日 星期${WEEK_NAMES[date.getDay()]}`;
-    const sub = [`${date.getFullYear()}年`];
-    if (lunar) sub.push(`農曆${lunar.month}${lunar.day}`);
-    if (info.label) sub.push(info.label);
-    $('panel-sub').textContent = sub.join(' · ');
+function closeSheet(dialog) {
+    if (!dialog.open || dialog.classList.contains('closing')) return;
+    dialog.classList.add('closing');
+    const done = () => {
+        dialog.classList.remove('closing');
+        dialog.close();
+    };
+    if (getComputedStyle(dialog).animationName === 'none') {
+        done();
+    } else {
+        dialog.addEventListener('animationend', done, { once: true });
+    }
+}
 
-    const list = $('event-list');
-    const events = getEvents(key);
+function openAddSheet() {
+    const date = fromKey(state.selected);
+    $('add-form').reset();
+    $('add-title').textContent = `新增行程 · ${date.getMonth() + 1}月${date.getDate()}日`;
+    openSheet($('add-sheet'));
+}
+
+function renderUpcoming() {
+    const list = $('upcoming-list');
+    const keys = Object.keys(state.events).filter(key => key >= state.todayKey).sort().slice(0, 30);
     list.replaceChildren();
 
-    if (!events.length) {
-        list.append(el('li', 'empty', '這天還沒有行程'));
+    if (!keys.length) {
+        list.append(el('li', 'empty', '目前沒有即將到來的行程'));
         return;
     }
-
-    for (const ev of events) {
-        const item = el('li', 'event-item');
-        item.append(el('span', `event-bar c-${ev.color}`));
-
-        const body = el('div', 'event-body');
-        body.append(el('div', 'event-title', ev.title));
-        body.append(el('div', 'event-meta', `${ev.time || '全天'} · ${COLOR_NAMES[ev.color] || '其他'}`));
-        item.append(body);
-
-        const del = el('button', 'del-btn', '✕');
-        del.type = 'button';
-        del.setAttribute('aria-label', `刪除「${ev.title}」`);
-        del.addEventListener('click', () => {
-            item.classList.add('removing');
-            item.addEventListener('animationend', () => {
-                removeEvent(key, ev.id);
-                refreshCell(key);
-                renderPanel();
-            }, { once: true });
-            // 關閉動畫時 animationend 不會觸發
-            if (getComputedStyle(item).animationName === 'none') {
-                removeEvent(key, ev.id);
-                refreshCell(key);
-                renderPanel();
-            }
-        });
-        item.append(del);
-        list.append(item);
+    for (const key of keys) {
+        const group = el('li', 'up-group');
+        group.append(el('div', 'up-date', dateTitle(fromKey(key)) + (key === state.todayKey ? '（今天）' : '')));
+        for (const ev of getEvents(key)) {
+            const item = el('button', 'up-item');
+            item.type = 'button';
+            item.append(el('span', `dot c-${ev.color}`), el('span', 'up-time', ev.time || '全天'), el('span', 'up-title', ev.title));
+            item.addEventListener('click', () => {
+                closeSheet($('list-sheet'));
+                selectDate(key);
+            });
+            group.append(item);
+        }
+        list.append(group);
     }
 }
 
 // ---------- 即時時鐘 ----------
 function tick() {
     const now = new Date();
-    $('clock-time').textContent = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+    const clock = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    if ($('island-clock').textContent !== clock) $('island-clock').textContent = clock;
 
     const key = toKey(now);
     if (key !== state.todayKey) {
         // 跨過午夜時更新「今天」的標示
         const oldToday = state.todayKey;
         state.todayKey = key;
-        const lunar = getLunar(now);
-        $('clock-date').textContent = `${now.getFullYear()}年${now.getMonth() + 1}月${now.getDate()}日 星期${WEEK_NAMES[now.getDay()]}` +
-            (lunar ? ` · 農曆${lunar.month}${lunar.day}` : '');
         if (oldToday) {
             refreshCell(oldToday);
             refreshCell(key);
@@ -442,80 +581,168 @@ function toggleTheme() {
     storageSet(THEME_KEY, next);
 }
 
+// ---------- 上下滑動 ----------
+function bindSwipe() {
+    const area = $('cal');
+    let startX = 0;
+    let startY = 0;
+    let pointerId = null;
+    let dragging = false;
+
+    area.addEventListener('pointerdown', e => {
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+        pointerId = e.pointerId;
+        startX = e.clientX;
+        startY = e.clientY;
+        dragging = false;
+    });
+
+    area.addEventListener('pointermove', e => {
+        if (e.pointerId !== pointerId) return;
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        if (!dragging) {
+            if (Math.abs(dy) < 8 || Math.abs(dy) < Math.abs(dx)) return;
+            // 開始拖曳後才捕捉指標，單純點擊日期不受影響
+            dragging = true;
+            area.setPointerCapture(e.pointerId);
+            grid.classList.add('dragging');
+            collapseIsland();
+        }
+        grid.style.transform = `translateY(${dy * 0.4}px)`;
+        grid.style.opacity = String(1 - Math.min(Math.abs(dy) / 400, 0.5));
+    });
+
+    const end = e => {
+        if (e.pointerId !== pointerId) return;
+        pointerId = null;
+        if (!dragging) return;
+        dragging = false;
+        grid.classList.remove('dragging');
+        const dy = e.clientY - startY;
+        if (e.type === 'pointerup' && Math.abs(dy) > SWIPE_THRESHOLD) {
+            shiftMonth(dy < 0 ? 1 : -1); // 往上滑看下個月
+        } else {
+            grid.style.transform = '';
+            grid.style.opacity = '';
+        }
+    };
+    area.addEventListener('pointerup', end);
+    area.addEventListener('pointercancel', end);
+
+    // 桌機用滑鼠滾輪
+    let wheelSum = 0;
+    let wheelLockUntil = 0;
+    let lastWheel = 0;
+    area.addEventListener('wheel', e => {
+        e.preventDefault();
+        const now = Date.now();
+        if (now < wheelLockUntil) return;
+        if (now - lastWheel > 200) wheelSum = 0;
+        lastWheel = now;
+        wheelSum += e.deltaY;
+        if (Math.abs(wheelSum) > 50) {
+            shiftMonth(wheelSum > 0 ? 1 : -1);
+            wheelSum = 0;
+            wheelLockUntil = now + 500;
+        }
+    }, { passive: false });
+}
+
 // ---------- 事件綁定 ----------
 function bindEvents() {
-    $('prev-month').addEventListener('click', () => shiftMonth(-1));
-    $('next-month').addEventListener('click', () => shiftMonth(1));
-    $('today-btn').addEventListener('click', () => selectDate(state.todayKey));
-    $('theme-toggle').addEventListener('click', toggleTheme);
-
-    $('year-select').addEventListener('change', e => goToMonth(Number(e.target.value), state.viewMonth));
-    $('month-select').addEventListener('change', e => goToMonth(state.viewYear, Number(e.target.value)));
-
     grid.addEventListener('click', e => {
         const cell = e.target.closest('.day');
         if (cell) selectDate(cell.dataset.date);
     });
 
-    $('event-form').addEventListener('submit', e => {
+    island.addEventListener('click', () => {
+        if (island.classList.contains('expanded')) {
+            collapseIsland();
+        } else {
+            expandIsland(state.selected);
+        }
+    });
+    island.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            island.click();
+        }
+    });
+    // 點動態島以外的地方就收合（點日期會重新展開，所以略過）
+    document.addEventListener('pointerdown', e => {
+        if (!island.contains(e.target) && !e.target.closest('.day')) collapseIsland();
+    });
+    window.addEventListener('resize', refreshIsland);
+
+    $('btn-today').addEventListener('click', () => selectDate(state.todayKey));
+    $('btn-add').addEventListener('click', openAddSheet);
+    $('btn-list').addEventListener('click', () => {
+        renderUpcoming();
+        openSheet($('list-sheet'));
+    });
+    $('btn-theme').addEventListener('click', toggleTheme);
+
+    $('add-form').addEventListener('submit', e => {
         e.preventDefault();
-        const title = $('event-title').value.trim();
+        const form = e.target;
+        const title = $('ev-title').value.trim();
         if (!title) return;
-        addEvent(state.selected, title, $('event-time').value, $('event-color').value);
-        $('event-title').value = '';
-        $('event-time').value = '';
+        addEvent(state.selected, title, $('ev-time').value, form.elements.color.value);
         refreshCell(state.selected);
-        renderPanel();
-        $('event-title').focus();
+        renderAgenda();
+        closeSheet($('add-sheet'));
+        expandIsland(state.selected);
+    });
+
+    document.querySelectorAll('.sheet').forEach(dialog => {
+        dialog.addEventListener('cancel', e => {
+            e.preventDefault();
+            closeSheet(dialog);
+        });
+        dialog.addEventListener('click', e => {
+            // 點到面板外的背景
+            if (e.target === dialog) closeSheet(dialog);
+        });
+        dialog.querySelectorAll('[data-close]').forEach(btn => {
+            btn.addEventListener('click', () => closeSheet(dialog));
+        });
     });
 
     document.addEventListener('keydown', e => {
-        if (e.target.closest('input, select, textarea')) return;
+        if (e.target.closest('input, textarea, dialog')) return;
         if (e.altKey || e.ctrlKey || e.metaKey) return;
-        if (e.key === 'ArrowLeft') shiftMonth(-1);
-        else if (e.key === 'ArrowRight') shiftMonth(1);
+        if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') shiftMonth(-1);
+        else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') shiftMonth(1);
         else if (e.key === 't' || e.key === 'T') selectDate(state.todayKey);
+        else if (e.key === 'Escape') collapseIsland();
+        else return;
+        e.preventDefault();
     });
 
-    // 手機左右滑動切換月份
-    let touchX = 0;
-    let touchY = 0;
-    const viewport = document.querySelector('.grid-viewport');
-    viewport.addEventListener('touchstart', e => {
-        touchX = e.touches[0].clientX;
-        touchY = e.touches[0].clientY;
-    }, { passive: true });
-    viewport.addEventListener('touchend', e => {
-        const dx = e.changedTouches[0].clientX - touchX;
-        const dy = e.changedTouches[0].clientY - touchY;
-        if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.5) {
-            shiftMonth(dx < 0 ? 1 : -1);
-        }
-    });
+    bindSwipe();
 }
 
 // ---------- 初始化 ----------
 function init() {
     applyTheme(storageGet(THEME_KEY));
 
-    const monthSelect = $('month-select');
-    for (let m = 0; m < 12; m++) {
-        const opt = el('option', '', `${m + 1}月`);
-        opt.value = m;
-        monthSelect.append(opt);
-    }
-
     tick();
     setInterval(tick, 1000);
 
-    const today = new Date();
+    const today = fromKey(state.todayKey);
     state.viewYear = today.getFullYear();
     state.viewMonth = today.getMonth();
     state.selected = state.todayKey;
 
     bindEvents();
-    render();
-    renderPanel();
+    renderGrid();
+    updateIslandMonth(false);
+    updateHolidayStatus();
+    renderAgenda();
+
+    // 開場：動態島展開一下今天的資訊
+    setTimeout(() => expandIsland(state.selected), 600);
 }
 
 init();
