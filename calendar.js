@@ -1,8 +1,9 @@
 // ===== 採購時程日曆 =====
 // 點日期設定某個節點（例如上網公告、開標），其他節點依「與前一節點相隔幾天」自動往前後推算；
-// 版面為連續週曆長條，可直接用 A4 直式列印。
+// 相隔天數可用半天為單位（上午／下午），版面為連續週曆長條，可直接用 A4 直式列印。
 
-const STORE_KEY = 'procure-calendar-v1';
+const STORE_KEY = 'procure-calendar-v2';
+const OLD_STORE_KEY = 'procure-calendar-v1';
 const HOLIDAY_KEY_PREFIX = 'dyn-calendar-holidays-';
 const HOLIDAY_CACHE_DAYS = 7;
 const HOLIDAY_SOURCES = [
@@ -11,27 +12,30 @@ const HOLIDAY_SOURCES = [
 ];
 const WEEK_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 const UNIT_NAMES = { cal: '日曆天', work: '工作天' };
-const COLORS = ['#2f6fdf', '#0f9488', '#d9822b', '#8b5cf6', '#db2777', '#16a34a', '#e0453a', '#0e7fa8'];
+const SLOT_NAMES = { day: '全天', am: '上午', pm: '下午' };
+const COLORS = ['#2f6fdf', '#0f9488', '#d9822b', '#c2410c', '#8b5cf6', '#db2777', '#16a34a', '#e0453a', '#0e7fa8', '#64748b'];
 const DEFAULT_STEPS = [
-    { name: '上網公告', offset: 0, unit: 'cal', roll: false },
-    { name: '結標', offset: 28, unit: 'cal', roll: true },
-    { name: '開標', offset: 1, unit: 'work', roll: true },
-    { name: 'POC', offset: 7, unit: 'cal', roll: true },
-    { name: '評選', offset: 7, unit: 'cal', roll: true },
-    { name: '決標', offset: 3, unit: 'work', roll: true },
-    { name: '履約期限', offset: 180, unit: 'cal', roll: false }
+    { name: '上網公告', offset: 0, unit: 'cal', slot: 'day', roll: false, note: '' },
+    { name: '結標', offset: 28, unit: 'cal', slot: 'day', roll: true, note: '' },
+    { name: '開標', offset: 1, unit: 'work', slot: 'am', roll: true, note: '' },
+    { name: 'POC說明會', offset: 0.5, unit: 'cal', slot: 'pm', roll: true, note: '' },
+    { name: 'POC', offset: 14, unit: 'cal', slot: 'day', roll: true, note: '廠商申請空域 14 天' },
+    { name: '評選', offset: 7, unit: 'cal', slot: 'day', roll: true, note: '' },
+    { name: '決標', offset: 3, unit: 'work', slot: 'day', roll: true, note: '' },
+    { name: '履約期限', offset: 180, unit: 'cal', slot: 'day', roll: false, note: '' }
 ];
+// 第一版的預設流程；使用者沒改過的話，升級成新的預設流程
+const V1_DEFAULT = [['上網公告', 0, 'cal'], ['結標', 28, 'cal'], ['開標', 1, 'work'], ['POC', 7, 'cal'],
+    ['評選', 7, 'cal'], ['決標', 3, 'work'], ['履約期限', 180, 'cal']];
 // 格子裡放不下的節日名稱改用簡稱
 const SHORT_NAMES = {
     '開國紀念日': '元旦',
     '農曆除夕': '除夕',
-    '和平紀念日': '和平紀念日',
     '兒童節及民族掃墓節': '兒童節',
     '孔子誕辰紀念日': '教師節',
-    '臺灣光復暨金門古寧頭大捷紀念日': '光復節',
-    '行憲紀念日': '行憲紀念日'
+    '臺灣光復暨金門古寧頭大捷紀念日': '光復節'
 };
-const MAX_STEPS = 12;
+const MAX_STEPS = 16;
 const MAX_OFFSET = 1500;
 const LOOP_LIMIT = 6000;
 
@@ -40,6 +44,7 @@ const holidays = {};      // { 2026: { status: 'ok' | 'loading' | 'failed', days
 const undoStack = [];
 let state = loadState();
 let dates = [];           // 各節點的日期（Date）
+let slots = [];           // 各節點的時段：day / am / pm
 let rolled = [];          // 各節點是否因遇假日而順延
 let periodMap = {};       // 'YYYY-MM-DD' → { i, label }：落在第 i 段期間及其天數標示
 let pendingSnapshot = null;
@@ -75,14 +80,28 @@ function fmtDate(date) {
     return `${date.getFullYear()}/${date.getMonth() + 1}/${date.getDate()}（${WEEK_NAMES[date.getDay()]}）`;
 }
 
+function fmtWhen(i) {
+    return fmtDate(dates[i]) + (slots[i] !== 'day' ? SLOT_NAMES[slots[i]] : '');
+}
+
 function clampInt(value, min, max) {
     const n = Math.round(Number(value));
     return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : min;
 }
 
+// 天數以半天為最小單位
+function clampHalf(value) {
+    const n = Math.round(Number(value) * 2) / 2;
+    return Number.isFinite(n) ? Math.min(MAX_OFFSET, Math.max(0, n)) : 0;
+}
+
 function hexToRgba(hex, alpha) {
     const n = parseInt(hex.slice(1), 16);
     return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
+
+function newId() {
+    return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 }
 
 function el(tag, className, text) {
@@ -110,40 +129,50 @@ function storageSet(key, value) {
 
 // ---------- 狀態（存在瀏覽器） ----------
 function defaultSteps() {
-    return DEFAULT_STEPS.map((step, i) => ({ ...step, color: COLORS[i % COLORS.length] }));
+    return DEFAULT_STEPS.map((step, i) => ({ ...step, id: newId(), color: COLORS[i % COLORS.length] }));
 }
 
 function defaultState() {
+    const steps = defaultSteps();
     return {
         title: '',
         note: '',
         startRule: 'next',
-        anchorIndex: 0,
+        anchorId: steps[0].id,
         anchorDate: toKey(new Date()),
-        active: 0,
-        steps: defaultSteps()
+        activeId: steps[0].id,
+        steps
+    };
+}
+
+function cleanStep(s, i) {
+    return {
+        id: typeof s.id === 'string' && s.id ? s.id.slice(0, 40) : newId(),
+        name: typeof s.name === 'string' && s.name.trim() ? s.name.slice(0, 20) : `節點${i + 1}`,
+        offset: clampHalf(s.offset),
+        unit: s.unit === 'work' ? 'work' : 'cal',
+        slot: s.slot === 'am' || s.slot === 'pm' ? s.slot : 'day',
+        roll: !!s.roll,
+        note: typeof s.note === 'string' ? s.note.slice(0, 40) : '',
+        color: /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : COLORS[i % COLORS.length]
     };
 }
 
 function loadState() {
     const base = defaultState();
     try {
-        const saved = JSON.parse(storageGet(STORE_KEY) || 'null');
+        let saved = JSON.parse(storageGet(STORE_KEY) || 'null');
+        if (!saved) saved = migrateV1(JSON.parse(storageGet(OLD_STORE_KEY) || 'null'));
         if (!saved || !Array.isArray(saved.steps) || saved.steps.length < 2) return base;
-        const steps = saved.steps.slice(0, MAX_STEPS).map((s, i) => ({
-            name: typeof s.name === 'string' && s.name.trim() ? s.name.slice(0, 20) : `節點${i + 1}`,
-            offset: clampInt(s.offset, 0, MAX_OFFSET),
-            unit: s.unit === 'work' ? 'work' : 'cal',
-            roll: !!s.roll,
-            color: /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : COLORS[i % COLORS.length]
-        }));
+        const steps = saved.steps.slice(0, MAX_STEPS).map(cleanStep);
+        const ids = steps.map(s => s.id);
         return {
             title: typeof saved.title === 'string' ? saved.title.slice(0, 80) : '',
             note: typeof saved.note === 'string' ? saved.note.slice(0, 2000) : '',
             startRule: saved.startRule === 'same' ? 'same' : 'next',
-            anchorIndex: clampInt(saved.anchorIndex, 0, steps.length - 1),
+            anchorId: ids.includes(saved.anchorId) ? saved.anchorId : ids[0],
             anchorDate: /^\d{4}-\d{2}-\d{2}$/.test(saved.anchorDate) ? saved.anchorDate : base.anchorDate,
-            active: clampInt(saved.active, 0, steps.length - 1),
+            activeId: ids.includes(saved.activeId) ? saved.activeId : ids[0],
             steps
         };
     } catch (e) {
@@ -151,8 +180,25 @@ function loadState() {
     }
 }
 
+// 第一版用索引記錄基準節點，改成用 id；沒改過的預設流程直接換成新的預設流程
+function migrateV1(old) {
+    if (!old || !Array.isArray(old.steps) || old.steps.length < 2) return null;
+    const untouched = old.steps.length === V1_DEFAULT.length &&
+        old.steps.every((s, i) => s.name === V1_DEFAULT[i][0] && s.offset === V1_DEFAULT[i][1] && s.unit === V1_DEFAULT[i][2]);
+    const anchorName = (old.steps[old.anchorIndex] || old.steps[0]).name;
+    const activeName = (old.steps[old.active] || old.steps[0]).name;
+    const steps = untouched ? defaultSteps() : old.steps.map((s, i) => ({ ...s, id: newId(), color: s.color || COLORS[i % COLORS.length] }));
+    const find = name => (steps.find(s => s.name === name) || steps[0]).id;
+    return { ...old, steps, anchorId: find(anchorName), activeId: find(activeName) };
+}
+
 function saveState() {
     storageSet(STORE_KEY, JSON.stringify(state));
+}
+
+function indexOf(id) {
+    const i = state.steps.findIndex(s => s.id === id);
+    return i < 0 ? 0 : i;
 }
 
 function snapshot() {
@@ -169,7 +215,7 @@ function undo() {
     syncHeader();
     if ($('settings').open) buildStepsTable();
     updateUndoButton();
-    showReadout(state.anchorDate);
+    showReadout(toKey(dates[indexOf(state.anchorId)]));
 }
 
 function updateUndoButton() {
@@ -286,35 +332,79 @@ function rollTo(date, step) {
     return d;
 }
 
+// 往後或往前一天；工作天只算上班日
+function nextDay(date, unit, dir) {
+    const d = addDays(date, dir);
+    return unit === 'work' ? rollTo(d, dir) : d;
+}
+
+// 整數天依起算方式計算；多出的半天：上午→同日下午，下午→隔天上午
+function stepForward(prevDate, prevSlot, step) {
+    const whole = Math.floor(step.offset);
+    const half = step.offset - whole >= 0.5;
+    let d = forward(prevDate, whole, step.unit);
+    let slot = step.slot;
+    if (half) {
+        if (prevSlot === 'pm') {
+            d = nextDay(d, step.unit, 1);
+            slot = 'am';
+        } else {
+            slot = 'pm';
+        }
+    }
+    return { d, slot };
+}
+
+function stepBackward(nextDate, nextSlot, step, prevStep) {
+    const whole = Math.floor(step.offset);
+    const half = step.offset - whole >= 0.5;
+    let d = nextDate;
+    let slot = prevStep.slot;
+    if (half) {
+        if (nextSlot === 'pm') {
+            slot = 'am';
+        } else {
+            d = nextDay(d, step.unit, -1);
+            slot = 'pm';
+        }
+    }
+    return { d: backward(d, whole, step.unit), slot };
+}
+
 function compute() {
     const steps = state.steps;
-    const a = Math.min(state.anchorIndex, steps.length - 1);
+    const a = indexOf(state.anchorId);
     dates = new Array(steps.length);
+    slots = new Array(steps.length);
     rolled = new Array(steps.length).fill(false);
     dates[a] = fromKey(state.anchorDate);
+    slots[a] = steps[a].slot;
 
     for (let i = a + 1; i < steps.length; i++) {
-        let d = forward(dates[i - 1], steps[i].offset, steps[i].unit);
+        let { d, slot } = stepForward(dates[i - 1], slots[i - 1], steps[i]);
         if (steps[i].roll && !isWorkday(d)) {
             d = rollTo(d, 1);
             rolled[i] = true;
         }
         dates[i] = d;
+        slots[i] = slot;
     }
     for (let i = a - 1; i >= 0; i--) {
-        let d = backward(dates[i + 1], steps[i + 1].offset, steps[i + 1].unit);
+        let { d, slot } = stepBackward(dates[i + 1], slots[i + 1], steps[i + 1], steps[i]);
         if (steps[i].roll && !isWorkday(d)) {
             d = rollTo(d, -1);
             rolled[i] = true;
         }
         dates[i] = d;
+        slots[i] = slot;
     }
 
-    // 每段期間的天數標示：日曆天標「第 N 天」，工作天只在上班日標「第 N 工作天」
+    // 每段期間的天數標示：日曆天標「第 N 天」，工作天只在上班日標「第 N 工作天」；不足一天的不標
     periodMap = {};
     for (let i = 1; i < steps.length; i++) {
+        if (steps[i].offset < 1) continue;
         const end = dates[i];
-        let d = state.startRule === 'same' ? dates[i - 1] : addDays(dates[i - 1], 1);
+        let d = periodStart(i);
         let calIdx = 0;
         let workIdx = 0;
         for (let guard = 0; d <= end && guard < LOOP_LIMIT; guard++) {
@@ -334,10 +424,14 @@ function periodStart(i) {
     return state.startRule === 'same' ? dates[i - 1] : addDays(dates[i - 1], 1);
 }
 
+function offsetText(step) {
+    return `${step.offset} ${UNIT_NAMES[step.unit]}`;
+}
+
 function ruleText(i) {
     if (i === 0) return '起點';
     const step = state.steps[i];
-    return `${state.steps[i - 1].name}後 ${step.offset} ${UNIT_NAMES[step.unit]}`;
+    return `${state.steps[i - 1].name}後 ${offsetText(step)}` + (step.note ? `（${step.note}）` : '');
 }
 
 // ---------- 畫面 ----------
@@ -355,23 +449,25 @@ function refresh() {
 }
 
 function renderIsland() {
-    const active = state.steps[state.active];
+    const ai = indexOf(state.activeId);
+    const active = state.steps[ai];
     $('active-name').textContent = active.name;
     $('active-name').style.setProperty('--active-color', active.color);
 
     const list = $('chips');
     list.replaceChildren();
     state.steps.forEach((step, i) => {
-        const chip = el('button', 'chip' + (i === state.active ? ' active' : ''));
+        const chip = el('button', 'chip' + (i === ai ? ' active' : ''));
         chip.type = 'button';
-        chip.dataset.i = i;
+        chip.dataset.id = step.id;
         chip.style.setProperty('--c', step.color);
-        chip.setAttribute('aria-pressed', String(i === state.active));
+        chip.setAttribute('aria-pressed', String(i === ai));
         chip.append(el('span', 'chip-name', step.name));
-        chip.append(el('span', 'chip-date', fmtDate(dates[i])));
-        const rule = i === 0 ? '起點' : `+${step.offset} ${UNIT_NAMES[step.unit]}`;
+        chip.append(el('span', 'chip-date', fmtWhen(i)));
+        const rule = i === 0 ? '起點' : `+${offsetText(step)}`;
         chip.append(el('span', 'chip-rule', rule + (rolled[i] ? '・順延' : '')));
-        if (i === state.anchorIndex) chip.append(el('span', 'chip-tag', '基準'));
+        if (step.note) chip.append(el('span', 'chip-note', step.note));
+        if (step.id === state.anchorId) chip.append(el('span', 'chip-tag', '基準'));
         const li = el('li');
         li.append(chip);
         list.append(li);
@@ -419,6 +515,9 @@ function renderStrip() {
         const key = toKey(d);
         (milestones[key] = milestones[key] || []).push(i);
     });
+    // 同一天先上午、再全天、後下午
+    const slotOrder = { am: 0, day: 1, pm: 2 };
+    Object.values(milestones).forEach(list => list.sort((x, y) => slotOrder[slots[x]] - slotOrder[slots[y]] || x - y));
     const todayKey = toKey(new Date());
 
     const rows = [];
@@ -461,14 +560,13 @@ function renderStrip() {
             btn.dataset.date = key;
             const aria = [fmtDate(day)];
             if (info.label) aria.push(info.label);
-            ms.forEach(i => aria.push(state.steps[i].name));
+            ms.forEach(i => aria.push(state.steps[i].name + (slots[i] !== 'day' ? SLOT_NAMES[slots[i]] : '')));
             if (period && period.label) aria.push(`${state.steps[period.i - 1].name}後${period.label}`);
             btn.setAttribute('aria-label', aria.join('，'));
 
             const top = el('span', 'day-top');
-            const num = el('span', 'num' + (day.getDate() === 1 ? ' month-start' : ''),
-                day.getDate() === 1 ? `${day.getMonth() + 1}/1` : String(day.getDate()));
-            top.append(num);
+            top.append(el('span', 'num' + (day.getDate() === 1 ? ' month-start' : ''),
+                day.getDate() === 1 ? `${day.getMonth() + 1}/1` : String(day.getDate())));
             if (period && period.label) top.append(el('span', 'idx', period.label));
             btn.append(top);
 
@@ -477,8 +575,10 @@ function renderStrip() {
             if (ms.length) {
                 const pills = el('span', 'pills');
                 ms.forEach(i => {
-                    const pill = el('span', 'pill' + (rolled[i] ? ' rolled' : ''), state.steps[i].name);
+                    const pill = el('span', 'pill' + (rolled[i] ? ' rolled' : ''));
                     pill.style.setProperty('--c', state.steps[i].color);
+                    if (slots[i] !== 'day') pill.append(el('span', 'slot', SLOT_NAMES[slots[i]]));
+                    pill.append(document.createTextNode(state.steps[i].name));
                     pills.append(pill);
                 });
                 btn.append(pills);
@@ -499,11 +599,12 @@ function renderSummary() {
         const name = el('td');
         const swatch = el('span', 'swatch');
         swatch.style.setProperty('--c', step.color);
-        name.append(swatch, document.createTextNode(step.name + (i === state.anchorIndex ? '（基準）' : '')));
+        name.append(swatch, document.createTextNode(step.name + (step.id === state.anchorId ? '（基準）' : '')));
         tr.append(name);
-        tr.append(el('td', '', fmtDate(dates[i]) + (rolled[i] ? '（遇假日順延）' : '')));
+        tr.append(el('td', '', fmtWhen(i) + (rolled[i] ? '（遇假日順延）' : '')));
         tr.append(el('td', '', ruleText(i)));
-        tr.append(el('td', '', i === 0 ? '—' : `${fmtDate(periodStart(i))} ～ ${fmtDate(dates[i])}`));
+        const span = i === 0 || step.offset < 1 ? '—' : `${fmtDate(periodStart(i))} ～ ${fmtDate(dates[i])}`;
+        tr.append(el('td', '', span));
         body.append(tr);
     });
 }
@@ -525,6 +626,7 @@ function renderMeta() {
 
     $('foot-note').textContent =
         `說明：日曆天${state.startRule === 'same' ? '以起始日為第 1 天' : '自起始日次日起算（始日不算入）'}；` +
+        '半天為單位時，上午加半天為同日下午，下午加半天為隔天上午；' +
         '工作天扣除週六、週日及國定假日（依政府行政機關辦公日曆表），補行上班日計為工作天；' +
         '標示「順延」者為原推算日遇停止上班日，順延至次一上班日（往前推算時改為前一上班日）。';
 }
@@ -552,7 +654,9 @@ function showReadout(key, prefix) {
     const head = fmtDate(date) + (info.label ? ` ${info.label}` : '');
 
     const ms = [];
-    dates.forEach((d, i) => { if (toKey(d) === key) ms.push(state.steps[i].name); });
+    dates.forEach((d, i) => {
+        if (toKey(d) === key) ms.push(state.steps[i].name + (slots[i] !== 'day' ? `（${SLOT_NAMES[slots[i]]}）` : ''));
+    });
     if (ms.length) parts.push(`這天是「${ms.join('、')}」`);
 
     const period = periodMap[key];
@@ -577,12 +681,15 @@ function showReadout(key, prefix) {
 }
 
 // ---------- 設定節點日期 ----------
-function setMilestone(i, key) {
+function setMilestone(id, key) {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return;
     const before = cellOf(key);
     const beforeTop = before ? before.getBoundingClientRect().top : null;
     snapshot();
-    state.anchorIndex = i;
+    // 半天推算出來的時段，設為基準時沿用目前的時段
+    const i = indexOf(id);
+    if (slots[i]) state.steps[i].slot = slots[i];
+    state.anchorId = id;
     state.anchorDate = key;
     saveState();
     refresh();
@@ -593,31 +700,49 @@ function setMilestone(i, key) {
     flash(key);
 }
 
-function setActive(i) {
-    state.active = i;
+function setActive(id) {
+    state.activeId = id;
     saveState();
     renderIsland();
 }
 
 // ---------- 流程設定 ----------
+function makeInput(type, id, field, value, label) {
+    const input = el('input');
+    input.type = type;
+    input.id = id;
+    input.dataset.field = field;
+    input.setAttribute('aria-label', label);
+    if (type === 'checkbox') input.checked = value;
+    else input.value = value;
+    return input;
+}
+
 function buildStepsTable() {
     const body = $('steps-body');
     body.replaceChildren();
+    const last = state.steps.length - 1;
     state.steps.forEach((step, i) => {
         const tr = el('tr');
-        tr.dataset.i = i;
+        tr.dataset.id = step.id;
+        // 頭尾節點固定，中間的節點可以拖曳排序
+        const movable = i > 0 && i < last;
+
+        const handleTd = el('td');
+        const handle = el('button', 'handle' + (movable ? '' : ' fixed'), '⠿');
+        handle.type = 'button';
+        handle.dataset.field = 'handle';
+        handle.id = `step-handle-${step.id}`;
+        handle.disabled = !movable;
+        handle.setAttribute('aria-label', movable ? `拖曳或按上下鍵調整「${step.name}」的順序` : '頭尾節點固定');
+        handleTd.append(handle);
 
         const nameTd = el('td');
         const nameWrap = el('div', 'name-cell');
         const swatch = el('span', 'swatch');
         swatch.style.setProperty('--c', step.color);
-        const name = el('input');
-        name.type = 'text';
-        name.id = `step-name-${i}`;
+        const name = makeInput('text', `step-name-${step.id}`, 'name', step.name, `第 ${i + 1} 個節點名稱`);
         name.maxLength = 20;
-        name.value = step.name;
-        name.dataset.field = 'name';
-        name.setAttribute('aria-label', `第 ${i + 1} 個節點名稱`);
         nameWrap.append(swatch, name);
         nameTd.append(nameWrap);
 
@@ -626,16 +751,12 @@ function buildStepsTable() {
             gapTd.append(el('span', 'muted', '起點'));
         } else {
             const gap = el('div', 'gap-cell');
-            const offset = el('input');
-            offset.type = 'number';
-            offset.id = `step-offset-${i}`;
+            const offset = makeInput('number', `step-offset-${step.id}`, 'offset', step.offset, `${step.name}與前一節點相隔天數`);
             offset.min = 0;
             offset.max = MAX_OFFSET;
-            offset.value = step.offset;
-            offset.dataset.field = 'offset';
-            offset.setAttribute('aria-label', `${step.name}與前一節點相隔天數`);
+            offset.step = 0.5;
             const unit = el('select');
-            unit.id = `step-unit-${i}`;
+            unit.id = `step-unit-${step.id}`;
             unit.dataset.field = 'unit';
             unit.setAttribute('aria-label', '天數單位');
             for (const [value, text] of Object.entries(UNIT_NAMES)) {
@@ -648,60 +769,98 @@ function buildStepsTable() {
             gapTd.append(gap);
         }
 
+        const slotTd = el('td');
+        const slot = el('select');
+        slot.id = `step-slot-${step.id}`;
+        slot.dataset.field = 'slot';
+        slot.setAttribute('aria-label', `${step.name}時段`);
+        for (const [value, text] of Object.entries(SLOT_NAMES)) {
+            const opt = el('option', '', text);
+            opt.value = value;
+            slot.append(opt);
+        }
+        slot.value = step.slot;
+        // 相隔含半天時，時段由推算決定
+        slotTd.append(slot);
+
         const rollTd = el('td');
-        const roll = el('input');
-        roll.type = 'checkbox';
-        roll.id = `step-roll-${i}`;
-        roll.checked = step.roll;
-        roll.dataset.field = 'roll';
-        roll.setAttribute('aria-label', `${step.name}遇假日順延`);
-        rollTd.append(roll);
+        rollTd.append(makeInput('checkbox', `step-roll-${step.id}`, 'roll', step.roll, `${step.name}遇假日順延`));
 
         const dateTd = el('td');
-        const date = el('input');
-        date.type = 'date';
-        date.id = `step-date-${i}`;
-        date.value = toKey(dates[i]);
-        date.dataset.field = 'date';
-        date.setAttribute('aria-label', `${step.name}日期`);
-        dateTd.append(date);
+        dateTd.append(makeInput('date', `step-date-${step.id}`, 'date', toKey(dates[i]), `${step.name}日期`));
 
-        const delTd = el('td');
+        const noteTd = el('td');
+        const note = makeInput('text', `step-note-${step.id}`, 'note', step.note, `${step.name}說明`);
+        note.className = 'note-input';
+        note.maxLength = 40;
+        note.placeholder = '例如：廠商申請空域';
+        noteTd.append(note);
+
+        const actTd = el('td');
+        const actions = el('div', 'row-actions');
+        const ins = el('button', 'ins', '＋');
+        ins.type = 'button';
+        ins.dataset.field = 'insert';
+        ins.disabled = state.steps.length >= MAX_STEPS;
+        ins.setAttribute('aria-label', `在「${step.name}」下方插入節點`);
+        ins.title = '在下方插入節點';
         const del = el('button', 'del', '✕');
         del.type = 'button';
         del.dataset.field = 'delete';
         del.disabled = state.steps.length <= 2;
         del.setAttribute('aria-label', `刪除「${step.name}」`);
-        delTd.append(del);
+        del.title = '刪除節點';
+        actions.append(ins, del);
+        actTd.append(actions);
 
-        tr.append(nameTd, gapTd, rollTd, dateTd, delTd);
+        tr.append(handleTd, nameTd, gapTd, slotTd, rollTd, dateTd, noteTd, actTd);
         body.append(tr);
+        updateSlotLock(step);
     });
     document.querySelectorAll('input[name="startRule"]').forEach(r => { r.checked = r.value === state.startRule; });
 }
 
+// 相隔含半天時，時段由推算決定，不能手動選
+function updateSlotLock(step) {
+    const select = $(`step-slot-${step.id}`);
+    if (!select) return;
+    const auto = indexOf(step.id) > 0 && step.offset % 1 !== 0 && step.id !== state.anchorId;
+    select.disabled = auto;
+    select.title = auto ? '相隔含半天，時段自動推算' : '';
+}
+
 function syncStepDates() {
     state.steps.forEach((step, i) => {
-        const input = $(`step-date-${i}`);
+        const input = $(`step-date-${step.id}`);
         if (input && document.activeElement !== input) input.value = toKey(dates[i]);
+        const slot = $(`step-slot-${step.id}`);
+        if (slot && slot.disabled) slot.value = slots[i];
     });
+}
+
+function rowStep(target) {
+    const tr = target.closest('tr');
+    return tr ? state.steps.find(s => s.id === tr.dataset.id) : null;
 }
 
 function onStepInput(e) {
     const field = e.target.dataset.field;
-    const tr = e.target.closest('tr');
-    if (!field || !tr) return;
-    const i = Number(tr.dataset.i);
-    const step = state.steps[i];
+    const step = rowStep(e.target);
+    if (!field || !step) return;
 
     if (field === 'name') {
-        step.name = e.target.value.trim().slice(0, 20) || `節點${i + 1}`;
+        step.name = e.target.value.trim().slice(0, 20) || '未命名';
     } else if (field === 'offset') {
-        step.offset = clampInt(e.target.value, 0, MAX_OFFSET);
+        step.offset = clampHalf(e.target.value);
+        updateSlotLock(step);
     } else if (field === 'unit') {
         step.unit = e.target.value === 'work' ? 'work' : 'cal';
+    } else if (field === 'slot') {
+        step.slot = SLOT_NAMES[e.target.value] ? e.target.value : 'day';
     } else if (field === 'roll') {
         step.roll = e.target.checked;
+    } else if (field === 'note') {
+        step.note = e.target.value.trim().slice(0, 40);
     } else {
         return;
     }
@@ -711,49 +870,118 @@ function onStepInput(e) {
 
 function onStepChange(e) {
     const field = e.target.dataset.field;
+    const step = rowStep(e.target);
+    if (!step) return;
     if (field === 'date') {
-        const i = Number(e.target.closest('tr').dataset.i);
-        if (e.target.value) setMilestone(i, e.target.value);
+        if (e.target.value) setMilestone(step.id, e.target.value);
         return;
     }
-    if (field === 'offset') e.target.value = state.steps[Number(e.target.closest('tr').dataset.i)].offset;
-    // 打字過程不記錄，每次改完一個欄位才存一筆可復原的紀錄
+    // 打字過程不記錄，每改完一個欄位才存一筆可復原的紀錄
     if (pendingSnapshot && pendingSnapshot !== JSON.stringify(state)) {
         undoStack.push(pendingSnapshot);
         updateUndoButton();
     }
     pendingSnapshot = JSON.stringify(state);
+    if (field === 'offset') e.target.value = step.offset;
 }
 
 function onStepClick(e) {
-    if (e.target.dataset.field !== 'delete') return;
-    const i = Number(e.target.closest('tr').dataset.i);
-    if (state.steps.length <= 2) return;
-    snapshot();
-    // 刪掉的是基準節點時，改用第一個節點當基準並保留它目前的日期
-    if (i === state.anchorIndex) {
-        const keep = i === 0 ? 1 : 0;
-        state.anchorDate = toKey(dates[keep]);
-        state.anchorIndex = keep;
-    }
-    state.steps.splice(i, 1);
-    if (state.anchorIndex > i) state.anchorIndex--;
-    state.active = Math.min(state.active > i ? state.active - 1 : state.active, state.steps.length - 1);
-    saveState();
-    refresh();
-    buildStepsTable();
+    const btn = e.target.closest('button');
+    if (!btn) return;
+    const step = rowStep(btn);
+    if (!step) return;
+    if (btn.dataset.field === 'delete') deleteStep(step.id);
+    else if (btn.dataset.field === 'insert') insertStep(indexOf(step.id) + 1);
 }
 
-function addStep() {
+function insertStep(at) {
     if (state.steps.length >= MAX_STEPS) return;
     snapshot();
     const used = new Set(state.steps.map(s => s.color));
     const color = COLORS.find(c => !used.has(c)) || COLORS[state.steps.length % COLORS.length];
-    state.steps.push({ name: `節點${state.steps.length + 1}`, offset: 7, unit: 'cal', roll: false, color });
+    const step = { id: newId(), name: '新節點', offset: 1, unit: 'cal', slot: 'day', roll: false, note: '', color };
+    state.steps.splice(at, 0, step);
     saveState();
     refresh();
     buildStepsTable();
-    $(`step-name-${state.steps.length - 1}`).focus();
+    const name = $(`step-name-${step.id}`);
+    name.focus();
+    name.select();
+}
+
+function deleteStep(id) {
+    if (state.steps.length <= 2) return;
+    const i = indexOf(id);
+    snapshot();
+    // 刪掉的是基準節點時，改用相鄰節點當基準並保留它目前的日期
+    if (id === state.anchorId) {
+        const keep = i === 0 ? 1 : i - 1;
+        state.anchorId = state.steps[keep].id;
+        state.anchorDate = toKey(dates[keep]);
+        state.steps[keep].slot = slots[keep];
+    }
+    state.steps.splice(i, 1);
+    if (id === state.activeId) state.activeId = state.steps[Math.min(i, state.steps.length - 1)].id;
+    saveState();
+    refresh();
+    buildStepsTable();
+}
+
+// 把節點從 from 移到 to（只限中間節點），保留各節點設定，其他日期依新順序重新推算
+function moveStep(from, to) {
+    const last = state.steps.length - 1;
+    if (from === to || from < 1 || from >= last || to < 1 || to >= last) return false;
+    snapshot();
+    const [step] = state.steps.splice(from, 1);
+    state.steps.splice(to, 0, step);
+    saveState();
+    refresh();
+    buildStepsTable();
+    return true;
+}
+
+// 用滑鼠、觸控或觸控筆拖曳 ⠿ 調整順序
+function startDrag(e) {
+    const handle = e.target.closest('.handle');
+    if (!handle || handle.disabled) return;
+    e.preventDefault();
+    const body = $('steps-body');
+    const tr = handle.closest('tr');
+    const from = [...body.children].indexOf(tr);
+    const last = body.children.length - 1;
+    tr.classList.add('dragging');
+
+    const move = ev => {
+        // 依指標高度找出應插入的位置，直接移動該列當作預覽；只能落在第一列之後、最後一列之前
+        const others = [...body.children].filter(r => r !== tr);
+        let k = 1;
+        while (k < others.length - 1) {
+            const rect = others[k].getBoundingClientRect();
+            if (ev.clientY < rect.top + rect.height / 2) break;
+            k++;
+        }
+        if (tr.nextSibling !== others[k]) body.insertBefore(tr, others[k]);
+    };
+    const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        tr.classList.remove('dragging');
+        const to = Math.min(Math.max([...body.children].indexOf(tr), 1), last - 1);
+        if (!moveStep(from, to)) buildStepsTable();
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+}
+
+function onHandleKey(e) {
+    const handle = e.target.closest('.handle');
+    if (!handle || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault();
+    const step = rowStep(handle);
+    const from = indexOf(step.id);
+    if (moveStep(from, from + (e.key === 'ArrowUp' ? -1 : 1))) $(`step-handle-${step.id}`).focus();
 }
 
 let resetTimer = 0;
@@ -775,9 +1003,9 @@ function resetSteps(e) {
     snapshot();
     const keepDate = toKey(dates[0]);
     state.steps = defaultSteps();
-    state.anchorIndex = 0;
+    state.anchorId = state.steps[0].id;
     state.anchorDate = keepDate;
-    state.active = 0;
+    state.activeId = state.steps[0].id;
     saveState();
     refresh();
     buildStepsTable();
@@ -807,7 +1035,7 @@ function bindEvents() {
     const weeks = $('weeks');
     weeks.addEventListener('click', e => {
         const btn = e.target.closest('.day');
-        if (btn) setMilestone(state.active, btn.dataset.date);
+        if (btn) setMilestone(state.activeId, btn.dataset.date);
     });
     weeks.addEventListener('mouseover', e => {
         const btn = e.target.closest('.day');
@@ -821,9 +1049,8 @@ function bindEvents() {
     $('chips').addEventListener('click', e => {
         const chip = e.target.closest('.chip');
         if (!chip) return;
-        const i = Number(chip.dataset.i);
-        setActive(i);
-        const key = toKey(dates[i]);
+        setActive(chip.dataset.id);
+        const key = toKey(dates[indexOf(chip.dataset.id)]);
         const cell = cellOf(key);
         if (cell) cell.scrollIntoView({ block: 'center', behavior: 'smooth' });
         showReadout(key);
@@ -859,7 +1086,9 @@ function bindEvents() {
     body.addEventListener('input', onStepInput);
     body.addEventListener('change', onStepChange);
     body.addEventListener('click', onStepClick);
-    $('add-step').addEventListener('click', addStep);
+    body.addEventListener('pointerdown', startDrag);
+    body.addEventListener('keydown', onHandleKey);
+    $('add-step').addEventListener('click', () => insertStep(state.steps.length - 1));
     $('reset-steps').addEventListener('click', resetSteps);
     document.querySelectorAll('input[name="startRule"]').forEach(radio => {
         radio.addEventListener('change', () => {

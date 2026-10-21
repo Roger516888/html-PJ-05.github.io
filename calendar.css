@@ -263,6 +263,12 @@ textarea {
     color: var(--island-muted);
 }
 
+.chip-note {
+    font-size: 11px;
+    color: var(--island-ink);
+    opacity: 0.85;
+}
+
 .chip-tag {
     position: absolute;
     top: -7px;
@@ -440,6 +446,12 @@ textarea {
     text-overflow: ellipsis;
 }
 
+.pill .slot {
+    font-weight: 400;
+    margin-right: 3px;
+    opacity: 0.9;
+}
+
 .pill.rolled::after {
     content: "・順延";
     font-weight: 400;
@@ -545,7 +557,7 @@ textarea {
 
 /* ---------- 流程設定 ---------- */
 .panel {
-    width: min(760px, calc(100% - 24px));
+    width: min(980px, calc(100% - 24px));
     max-height: calc(100% - 40px);
     padding: 0;
     border: 0;
@@ -593,8 +605,69 @@ textarea {
 
 .steps {
     width: 100%;
-    min-width: 600px;
+    min-width: 860px;
     border-collapse: collapse;
+}
+
+.steps tr.dragging td {
+    background: var(--cell-alt);
+}
+
+.steps tr.dragging {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.handle {
+    width: 28px;
+    height: 30px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 16px;
+    line-height: 1;
+    cursor: grab;
+    touch-action: none;
+}
+
+.handle:hover {
+    background: var(--cell-alt);
+    color: var(--ink);
+}
+
+.handle:focus-visible {
+    outline: 2px solid var(--accent);
+}
+
+.handle.fixed {
+    cursor: default;
+    opacity: 0.25;
+}
+
+.steps input.note-input {
+    width: 100%;
+    min-width: 120px;
+}
+
+.row-actions {
+    display: flex;
+    gap: 2px;
+}
+
+.ins {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--accent);
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.ins:hover {
+    background: var(--cell-alt);
 }
 
 .steps th {
@@ -628,7 +701,11 @@ textarea {
 }
 
 .steps input[type="number"] {
-    width: 72px;
+    width: 68px;
+}
+
+.steps input[type="text"]:not(.note-input) {
+    min-width: 100px;
 }
 
 .name-cell {

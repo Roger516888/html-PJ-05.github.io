@@ -79,14 +79,14 @@
             <div class="steps-wrap">
                 <table class="steps">
                     <thead>
-                        <tr><th>節點名稱</th><th>與前一節點相隔</th><th>遇假日順延</th><th>日期</th><th><span class="sr-only">刪除</span></th></tr>
+                        <tr><th><span class="sr-only">排序</span></th><th>節點名稱</th><th>與前一節點相隔</th><th>時段</th><th>遇假日順延</th><th>日期</th><th>說明</th><th><span class="sr-only">插入或刪除</span></th></tr>
                     </thead>
                     <tbody id="steps-body"></tbody>
                 </table>
             </div>
-            <p class="panel-hint">改「日期」會以該節點為基準重新推算其他節點；工作天會扣除週末與國定假日。</p>
+            <p class="panel-hint">拖曳左邊的 ⠿ 可調整中間節點的順序（也可選取後按 ↑↓），按 ＋ 在該列下方插入新節點。相隔天數可填 0.5 代表半天：上午加半天到下午，下午加半天到隔天上午。改「日期」會以該節點為基準重新推算其他節點。</p>
             <div class="panel-actions">
-                <button id="add-step" class="btn" type="button">＋ 新增節點</button>
+                <button id="add-step" class="btn" type="button">＋ 在最後一個節點前新增</button>
                 <button id="reset-steps" class="btn" type="button">恢復預設流程</button>
                 <button class="btn primary" type="submit">完成</button>
             </div>
