@@ -608,12 +608,15 @@ function renderStrip() {
             btn.append(top);
 
             if (info.label) btn.append(el('span', 'hol' + (info.makeup ? ' workday' : ''), shortLabel(info.label)));
+            // 遇假日順延的節點另外標在這一行，不佔用節點標籤的寬度
+            else if (ms.some(i => rolled[i])) btn.append(el('span', 'hol rolled', '遇假日順延'));
 
             if (ms.length) {
                 const pills = el('span', 'pills');
                 ms.forEach(i => {
-                    const pill = el('span', 'pill' + (rolled[i] ? ' rolled' : ''));
+                    const pill = el('span', 'pill');
                     pill.style.setProperty('--c', state.steps[i].color);
+                    pill.title = (slots[i] !== 'day' ? SLOT_NAMES[slots[i]] + ' ' : '') + state.steps[i].name + (rolled[i] ? '（遇假日順延）' : '');
                     if (slots[i] !== 'day') pill.append(el('span', 'slot', SLOT_NAMES[slots[i]]));
                     pill.append(document.createTextNode(state.steps[i].name));
                     pills.append(pill);
