@@ -471,6 +471,33 @@ textarea {
     100% { box-shadow: 0 0 0 0 transparent; }
 }
 
+.extend {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin: 6px 0;
+}
+
+.extend-btn {
+    padding: 5px 14px;
+    border: 1px dashed var(--rule);
+    border-radius: 999px;
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.extend-btn:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
+.extend-btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
 .foot-note {
     margin: 12px 0 0;
     font-size: 11px;
@@ -902,7 +929,8 @@ textarea {
 
     .island,
     .toolbar,
-    .panel {
+    .panel,
+    .extend {
         display: none !important;
     }
 

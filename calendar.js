@@ -36,6 +36,7 @@ const SHORT_NAMES = {
     '臺灣光復暨金門古寧頭大捷紀念日': '光復節'
 };
 const MAX_STEPS = 16;
+const MAX_EXTRA_MONTHS = 36;
 const MAX_OFFSET = 1500;
 const LOOP_LIMIT = 6000;
 
@@ -141,6 +142,8 @@ function defaultState() {
         anchorId: steps[0].id,
         anchorDate: toKey(new Date()),
         activeId: steps[0].id,
+        extraBefore: 0,
+        extraAfter: 0,
         steps
     };
 }
@@ -173,6 +176,8 @@ function loadState() {
             anchorId: ids.includes(saved.anchorId) ? saved.anchorId : ids[0],
             anchorDate: /^\d{4}-\d{2}-\d{2}$/.test(saved.anchorDate) ? saved.anchorDate : base.anchorDate,
             activeId: ids.includes(saved.activeId) ? saved.activeId : ids[0],
+            extraBefore: clampInt(saved.extraBefore, 0, MAX_EXTRA_MONTHS),
+            extraAfter: clampInt(saved.extraAfter, 0, MAX_EXTRA_MONTHS),
             steps
         };
     } catch (e) {
@@ -443,6 +448,7 @@ function refresh() {
     }
     renderIsland();
     renderStrip();
+    updateRangeButtons();
     renderSummary();
     renderMeta();
     if ($('settings').open) syncStepDates();
@@ -481,18 +487,30 @@ function updateIslandHeight() {
     document.documentElement.style.setProperty('--island-h', sticky ? `${island.offsetHeight + 8}px` : '0px');
 }
 
-// 週曆範圍：最早節點所在月份的第一週，到最晚節點所在月份的最後一週
+// 週曆範圍：從本月或最早節點所在月份（取較早者）開始，到最晚節點所在月份結束；
+// 可再往前、往後多顯示幾個月，方便點選範圍外的日期
 function stripRange() {
-    let min = dates[0];
+    const today = new Date();
+    let min = new Date(today.getFullYear(), today.getMonth(), 1);
     let max = dates[0];
     for (const d of dates) {
         if (d < min) min = d;
         if (d > max) max = d;
     }
     return {
-        start: mondayOf(new Date(min.getFullYear(), min.getMonth(), 1)),
-        end: addDays(mondayOf(new Date(max.getFullYear(), max.getMonth() + 1, 0)), 6)
+        start: mondayOf(new Date(min.getFullYear(), min.getMonth() - state.extraBefore, 1)),
+        end: addDays(mondayOf(new Date(max.getFullYear(), max.getMonth() + 1 + state.extraAfter, 0)), 6)
     };
+}
+
+function extendRange(field, delta) {
+    state[field] = clampInt(state[field] + delta, 0, MAX_EXTRA_MONTHS);
+    saveState();
+    refresh();
+}
+
+function updateRangeButtons() {
+    $('range-reset').hidden = state.extraBefore === 0 && state.extraAfter === 0;
 }
 
 // 回傳是否有年份的假日資料剛從快取取得
@@ -1077,6 +1095,14 @@ function bindEvents() {
         } else {
             $('readout').textContent = `今天（${fmtDate(new Date())}）不在目前的時程範圍內。`;
         }
+    });
+    $('more-before').addEventListener('click', () => extendRange('extraBefore', 1));
+    $('more-after').addEventListener('click', () => extendRange('extraAfter', 1));
+    $('range-reset').addEventListener('click', () => {
+        state.extraBefore = 0;
+        state.extraAfter = 0;
+        saveState();
+        refresh();
     });
     $('btn-undo').addEventListener('click', undo);
     $('btn-settings').addEventListener('click', openSettings);
