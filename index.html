@@ -1,19 +1,103 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant-TW">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>自動排班工具 - 5月班表</title>
-    <link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>無人機百科</title>
+<meta name="description" content="無人機機型規格百科：續航、酬載、重量、圖傳距離與感測器並列比較，每項數據標明來源。">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <div class="container">
-        <h1>自動排班工具 - 2025年5月班表</h1>
-        <button onclick="generateSchedule()">生成班表</button>
-        <div id="schedule-output"></div>
-        <div id="stats-output"></div>
-        <div id="self-check-output"></div>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <h1>無人機百科</h1>
+      <p class="tagline">機型規格比較 ─ 每個數字都標來源</p>
     </div>
-    <script src="script.js"></script>
+    <button id="theme-toggle" class="icon-btn" type="button" aria-label="切換深色／淺色模式">
+      <span aria-hidden="true">◐</span>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <section class="notice" id="data-caveat">
+    <h2>看規格前先知道這三件事</h2>
+    <ol>
+      <li><strong>續航是理想值。</strong>原廠標示的飛行時間幾乎都是無酬載、無風、懸停或定速、關閉避障的測試值。實際任務通常短 20–30%，掛上熱像或光達會更短。每筆續航旁邊都附了測試條件。</li>
+      <li><strong>同型號常有多個版本。</strong>同一個名字可能對應不同世代或不同酬載組合，規格會變。表上的「備註」欄會寫明是哪一版。</li>
+      <li><strong>空白就是查不到。</strong>標成「—」代表找不到可信的公開資料，不是 0、也不是「很小」。本站不填推測值。</li>
+    </ol>
+  </section>
+
+  <section class="controls" aria-label="搜尋與篩選">
+    <div class="search-row">
+      <label class="search-field">
+        <span class="sr-only">搜尋機型</span>
+        <input type="search" id="search" placeholder="搜尋型號、廠商、感測器…" autocomplete="off">
+      </label>
+      <p class="result-count" id="result-count" aria-live="polite"></p>
+    </div>
+    <div class="filter-groups" id="filters"></div>
+    <div class="active-row">
+      <button type="button" id="clear-filters" class="text-btn hidden">清除所有篩選</button>
+    </div>
+  </section>
+
+  <section class="table-section" aria-label="機型規格表">
+    <div id="empty-state" class="empty hidden">
+      <p>沒有符合條件的機型。</p>
+      <button type="button" class="text-btn" data-clear>清除篩選</button>
+    </div>
+    <div class="table-scroll" id="table-scroll">
+      <table id="spec-table">
+        <caption class="sr-only">無人機機型規格比較表，點欄位標題可排序</caption>
+        <thead><tr id="head-row"></tr></thead>
+        <tbody id="body-rows"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="sources-note">
+    <h2>資料來源與方法</h2>
+    <p>每個機型的規格都以<strong>原廠官方規格頁</strong>為第一優先來源；查不到官方頁時才採用專業媒體或經銷商資料，並在該機型的詳細頁標記為非官方來源、同時降低可信度等級。</p>
+    <p>可信度標記的意思是：<span class="badge badge-high">高</span> 主要數字來自官方規格頁；<span class="badge badge-medium">中</span> 部分數字來自非官方來源；<span class="badge badge-low">低</span> 公開資料稀少或互相矛盾，選型前請自行向原廠確認。</p>
+    <p class="meta" id="dataset-meta"></p>
+  </section>
+
+</main>
+
+<!-- 比較盤 -->
+<div class="compare-tray hidden" id="compare-tray" role="region" aria-label="比較清單">
+  <div class="wrap tray-inner">
+    <div class="tray-items" id="tray-items"></div>
+    <div class="tray-actions">
+      <button type="button" id="compare-open" class="primary-btn">並列比較</button>
+      <button type="button" id="compare-clear" class="text-btn">清空</button>
+    </div>
+  </div>
+</div>
+
+<!-- 詳細／比較 彈出層 -->
+<div class="modal hidden" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+  <div class="modal-backdrop" data-close></div>
+  <div class="modal-panel">
+    <div class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button type="button" class="icon-btn" data-close aria-label="關閉">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p>無人機百科 ─ 規格以原廠公開資料為準，實際採購與任務規劃請向原廠或代理商確認現行規格。</p>
+  </div>
+</footer>
+
+<script src="script.js"></script>
 </body>
 </html>
