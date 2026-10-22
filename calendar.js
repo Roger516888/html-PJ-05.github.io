@@ -1,10 +1,10 @@
 // ===== 採購時程日曆 =====
-// 點日期設定某個節點（例如上網公告、開標），其他節點依「與前一節點相隔幾天」自動往前後推算；
-// 相隔天數可用半天為單位（上午／下午），版面為連續週曆長條，可直接用 A4 直式列印。
+// 多案件：點日期設定某個節點（例如上網公告、開標），後面的節點依「與前一節點相隔幾天」自動推算；
+// 資料存在瀏覽器，在 Claude 版另存雲端自動同步；可匯出成單檔（含資料）、.json 備份與 .ics 行事曆。
 
-const STORE_KEY = 'procure-calendar-v2';
-const THEME_KEY = 'procure-calendar-theme';
-const OLD_STORE_KEY = 'procure-calendar-v1';
+const STORE_KEY = 'procure-calendar-v3';
+const OLD_STORE_KEY = 'procure-calendar-v2';
+const OLD_THEME_KEY = 'procure-calendar-theme';
 const HOLIDAY_KEY_PREFIX = 'dyn-calendar-holidays-';
 const HOLIDAY_CACHE_DAYS = 7;
 const HOLIDAY_SOURCES = [
@@ -14,20 +14,18 @@ const HOLIDAY_SOURCES = [
 const WEEK_NAMES = ['日', '一', '二', '三', '四', '五', '六'];
 const UNIT_NAMES = { cal: '日曆天', work: '工作天' };
 const SLOT_NAMES = { day: '全天', am: '上午', pm: '下午' };
+const TIER_NAMES = { huge: '巨額', check: '查核金額以上', announce: '公告金額以上' };
 const COLORS = ['#2f6fdf', '#0f9488', '#d9822b', '#c2410c', '#8b5cf6', '#db2777', '#16a34a', '#e0453a', '#0e7fa8', '#64748b'];
 const DEFAULT_STEPS = [
     { name: '上網公告', offset: 0, unit: 'cal', slot: 'day', roll: false, note: '' },
-    { name: '結標', offset: 28, unit: 'cal', slot: 'day', roll: true, note: '' },
+    { name: '截止投標', offset: 28, unit: 'cal', slot: 'day', roll: true, note: '' },
     { name: '開標', offset: 1, unit: 'work', slot: 'am', roll: true, note: '' },
     { name: 'POC說明會', offset: 0.5, unit: 'cal', slot: 'pm', roll: true, note: '' },
     { name: 'POC', offset: 14, unit: 'cal', slot: 'day', roll: true, note: '廠商申請空域 14 天' },
     { name: '評選', offset: 7, unit: 'cal', slot: 'day', roll: true, note: '' },
     { name: '決標', offset: 3, unit: 'work', slot: 'day', roll: true, note: '' },
-    { name: '履約期限', offset: 180, unit: 'cal', slot: 'day', roll: false, note: '' }
+    { name: '備貨期限', offset: 180, unit: 'cal', slot: 'day', roll: false, note: '決標次日起 180 日' }
 ];
-// 第一版的預設流程；使用者沒改過的話，升級成新的預設流程
-const V1_DEFAULT = [['上網公告', 0, 'cal'], ['結標', 28, 'cal'], ['開標', 1, 'work'], ['POC', 7, 'cal'],
-    ['評選', 7, 'cal'], ['決標', 3, 'work'], ['履約期限', 180, 'cal']];
 // 格子裡放不下的節日名稱改用簡稱
 const SHORT_NAMES = {
     '開國紀念日': '元旦',
@@ -37,20 +35,26 @@ const SHORT_NAMES = {
     '臺灣光復暨金門古寧頭大捷紀念日': '光復節'
 };
 const MAX_STEPS = 16;
+const MAX_CASES = 60;
 const MAX_EXTRA_MONTHS = 36;
 const DEFAULT_START_MONTH = '2025-01';   // 民國 114 年 1 月
 const MAX_OFFSET = 1500;
 const LOOP_LIMIT = 6000;
+const APP_VERSION = '3.0';
 
 const $ = id => document.getElementById(id);
 const holidays = {};      // { 2026: { status: 'ok' | 'loading' | 'failed', days: { 'YYYY-MM-DD': {...} } } }
-const undoStack = [];
-let state = loadState();
+const inArtifact = !!(window.claude && typeof window.claude.use === 'function');
+let undoStack = [];
+let settings = { era: 'roc', theme: 'auto', currentId: '', hidden: [] };
+let cases = {};           // id → 案件
+let state = null;         // 目前的案件
 let dates = [];           // 各節點的日期（Date）
 let slots = [];           // 各節點的時段：day / am / pm
 let rolled = [];          // 各節點是否因遇假日而順延
 let periodMap = {};       // 'YYYY-MM-DD' → { i, label }：落在第 i 段期間及其天數標示
 let pendingSnapshot = null;
+let untouchedId = null;   // 自動建立、還沒改過的空白案件
 
 // ---------- 工具函式 ----------
 function pad(n) {
@@ -81,7 +85,7 @@ function mondayOf(date) {
 
 // 年份依設定顯示民國或西元
 function fmtYear(year) {
-    return state.era === 'ad' ? String(year) : String(year - 1911);
+    return settings.era === 'ad' ? String(year) : String(year - 1911);
 }
 
 function fmtDate(date) {
@@ -90,6 +94,11 @@ function fmtDate(date) {
 
 function fmtWhen(i) {
     return fmtDate(dates[i]) + (slots[i] !== 'day' ? SLOT_NAMES[slots[i]] : '');
+}
+
+function stamp() {
+    const d = new Date();
+    return `${fmtYear(d.getFullYear())}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
 }
 
 function clampInt(value, min, max) {
@@ -110,6 +119,14 @@ function hexToRgba(hex, alpha) {
 
 function newId() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+
+function str(value, max) {
+    return typeof value === 'string' ? value.slice(0, max) : '';
+}
+
+function isoOrNow(value) {
+    return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : new Date().toISOString();
 }
 
 function el(tag, className, text) {
@@ -135,16 +152,46 @@ function storageSet(key, value) {
     }
 }
 
-// ---------- 狀態（存在瀏覽器） ----------
+function safeName(text) {
+    return (text || '').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 40) || '未命名';
+}
+
+let toastTimer = 0;
+function toast(message, ms = 2600) {
+    const box = $('toast');
+    box.textContent = message;
+    box.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { box.hidden = true; }, ms);
+}
+
+// ---------- 案件資料 ----------
 function defaultSteps() {
     return DEFAULT_STEPS.map((step, i) => ({ ...step, id: newId(), color: COLORS[i % COLORS.length] }));
 }
 
-function defaultState() {
-    const steps = defaultSteps();
+function cleanStep(s, i) {
     return {
-        title: '',
+        id: typeof s.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(s.id) ? s.id : newId(),
+        name: typeof s.name === 'string' && s.name.trim() ? s.name.slice(0, 20) : `節點${i + 1}`,
+        offset: clampHalf(s.offset),
+        unit: s.unit === 'work' ? 'work' : 'cal',
+        slot: s.slot === 'am' || s.slot === 'pm' ? s.slot : 'day',
+        roll: !!s.roll,
+        note: str(s.note, 40),
+        color: /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : COLORS[i % COLORS.length]
+    };
+}
+
+function newCase(name) {
+    const steps = defaultSteps();
+    const now = new Date().toISOString();
+    return {
+        id: newId(),
+        caseNo: '',
+        name: name || '',
         note: '',
+        tier: '',
         startRule: 'next',
         anchorId: steps[0].id,
         anchorDate: toKey(new Date()),
@@ -152,66 +199,116 @@ function defaultState() {
         extraBefore: 0,
         extraAfter: 0,
         startMonth: DEFAULT_START_MONTH,
-        era: 'roc',
-        steps
+        notes: {},
+        steps,
+        createdAt: now,
+        updatedAt: now
     };
 }
 
-function cleanStep(s, i) {
+// 把任何來源（瀏覽器、雲端、匯入檔）的案件整理成固定格式；不像案件就回傳 null
+function normalizeCase(raw) {
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.steps) || raw.steps.length < 2) return null;
+    const steps = raw.steps.slice(0, MAX_STEPS).map(cleanStep);
+    const ids = steps.map(s => s.id);
+    const notes = {};
+    if (raw.notes && typeof raw.notes === 'object') {
+        Object.keys(raw.notes).filter(k => /^\d{4}-\d{2}-\d{2}$/.test(k) && typeof raw.notes[k] === 'string' && raw.notes[k])
+            .slice(0, 500).forEach(k => { notes[k] = raw.notes[k].slice(0, 200); });
+    }
     return {
-        id: typeof s.id === 'string' && s.id ? s.id.slice(0, 40) : newId(),
-        name: typeof s.name === 'string' && s.name.trim() ? s.name.slice(0, 20) : `節點${i + 1}`,
-        offset: clampHalf(s.offset),
-        unit: s.unit === 'work' ? 'work' : 'cal',
-        slot: s.slot === 'am' || s.slot === 'pm' ? s.slot : 'day',
-        roll: !!s.roll,
-        note: typeof s.note === 'string' ? s.note.slice(0, 40) : '',
-        color: /^#[0-9a-f]{6}$/i.test(s.color) ? s.color : COLORS[i % COLORS.length]
+        id: typeof raw.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(raw.id) ? raw.id : newId(),
+        caseNo: str(raw.caseNo, 30),
+        name: str(raw.name !== undefined ? raw.name : raw.title, 80),
+        note: str(raw.note, 2000),
+        tier: TIER_NAMES[raw.tier] ? raw.tier : '',
+        startRule: raw.startRule === 'same' ? 'same' : 'next',
+        anchorId: ids.includes(raw.anchorId) ? raw.anchorId : ids[0],
+        anchorDate: /^\d{4}-\d{2}-\d{2}$/.test(raw.anchorDate) ? raw.anchorDate : toKey(new Date()),
+        activeId: ids.includes(raw.activeId) ? raw.activeId : ids[0],
+        extraBefore: clampInt(raw.extraBefore, 0, MAX_EXTRA_MONTHS),
+        extraAfter: clampInt(raw.extraAfter, 0, MAX_EXTRA_MONTHS),
+        startMonth: raw.startMonth === undefined ? DEFAULT_START_MONTH
+            : /^\d{4}-\d{2}$/.test(raw.startMonth) ? raw.startMonth : '',
+        notes,
+        steps,
+        createdAt: isoOrNow(raw.createdAt),
+        updatedAt: isoOrNow(raw.updatedAt)
     };
 }
 
-function loadState() {
-    const base = defaultState();
+function cloneCase(source, suffix) {
+    const copy = normalizeCase(JSON.parse(JSON.stringify(source)));
+    copy.id = newId();
+    // 節點 id 也換新，避免和原案件混在一起
+    const map = {};
+    copy.steps.forEach(s => { map[s.id] = newId(); s.id = map[s.id]; });
+    copy.anchorId = map[copy.anchorId] || copy.steps[0].id;
+    copy.activeId = map[copy.activeId] || copy.steps[0].id;
+    if (suffix) copy.name = (copy.name || '未命名') + suffix;
+    copy.createdAt = copy.updatedAt = new Date().toISOString();
+    return copy;
+}
+
+// ---------- 儲存（瀏覽器）----------
+function loadLocal() {
     try {
-        let saved = JSON.parse(storageGet(STORE_KEY) || 'null');
-        if (!saved) saved = migrateV1(JSON.parse(storageGet(OLD_STORE_KEY) || 'null'));
-        if (!saved || !Array.isArray(saved.steps) || saved.steps.length < 2) return base;
-        const steps = saved.steps.slice(0, MAX_STEPS).map(cleanStep);
-        const ids = steps.map(s => s.id);
-        return {
-            title: typeof saved.title === 'string' ? saved.title.slice(0, 80) : '',
-            note: typeof saved.note === 'string' ? saved.note.slice(0, 2000) : '',
-            startRule: saved.startRule === 'same' ? 'same' : 'next',
-            anchorId: ids.includes(saved.anchorId) ? saved.anchorId : ids[0],
-            anchorDate: /^\d{4}-\d{2}-\d{2}$/.test(saved.anchorDate) ? saved.anchorDate : base.anchorDate,
-            activeId: ids.includes(saved.activeId) ? saved.activeId : ids[0],
-            extraBefore: clampInt(saved.extraBefore, 0, MAX_EXTRA_MONTHS),
-            extraAfter: clampInt(saved.extraAfter, 0, MAX_EXTRA_MONTHS),
-            // 沒設定過的沿用預設；按過「改回自動」會存成空字串
-            startMonth: saved.startMonth === undefined ? DEFAULT_START_MONTH
-                : /^\d{4}-\d{2}$/.test(saved.startMonth) ? saved.startMonth : '',
-            era: saved.era === 'ad' ? 'ad' : 'roc',
-            steps
-        };
+        const saved = JSON.parse(storageGet(STORE_KEY) || 'null');
+        if (saved && typeof saved === 'object') {
+            if (saved.settings) {
+                settings.era = saved.settings.era === 'ad' ? 'ad' : 'roc';
+                settings.theme = ['light', 'dark'].includes(saved.settings.theme) ? saved.settings.theme : 'auto';
+                settings.currentId = str(saved.settings.currentId, 40);
+                settings.hidden = Array.isArray(saved.settings.hidden)
+                    ? saved.settings.hidden.filter(x => typeof x === 'string').slice(-200) : [];
+            }
+            if (saved.cases && typeof saved.cases === 'object') {
+                Object.values(saved.cases).forEach(raw => {
+                    const c = normalizeCase(raw);
+                    if (c) cases[c.id] = c;
+                });
+            }
+            return;
+        }
     } catch (e) {
-        return base;
+        // 損毀就當作空的
+    }
+    migrateOld();
+}
+
+// 舊版（單一案件）資料轉成第一個案件
+function migrateOld() {
+    try {
+        const old = JSON.parse(storageGet(OLD_STORE_KEY) || 'null');
+        if (old && Array.isArray(old.steps)) {
+            const c = normalizeCase(old);
+            if (c) {
+                cases[c.id] = c;
+                settings.currentId = c.id;
+            }
+            if (old.era === 'ad') settings.era = 'ad';
+        }
+        const theme = storageGet(OLD_THEME_KEY);
+        if (theme === 'light' || theme === 'dark') settings.theme = theme;
+    } catch (e) {
+        // 忽略
     }
 }
 
-// 第一版用索引記錄基準節點，改成用 id；沒改過的預設流程直接換成新的預設流程
-function migrateV1(old) {
-    if (!old || !Array.isArray(old.steps) || old.steps.length < 2) return null;
-    const untouched = old.steps.length === V1_DEFAULT.length &&
-        old.steps.every((s, i) => s.name === V1_DEFAULT[i][0] && s.offset === V1_DEFAULT[i][1] && s.unit === V1_DEFAULT[i][2]);
-    const anchorName = (old.steps[old.anchorIndex] || old.steps[0]).name;
-    const activeName = (old.steps[old.active] || old.steps[0]).name;
-    const steps = untouched ? defaultSteps() : old.steps.map((s, i) => ({ ...s, id: newId(), color: s.color || COLORS[i % COLORS.length] }));
-    const find = name => (steps.find(s => s.name === name) || steps[0]).id;
-    return { ...old, steps, anchorId: find(anchorName), activeId: find(activeName) };
+function persistLocal() {
+    storageSet(STORE_KEY, JSON.stringify({ settings, cases }));
 }
 
+function saveSettings() {
+    persistLocal();
+}
+
+// 目前案件有變動：記錄時間、存到瀏覽器，並排程寫到雲端
 function saveState() {
-    storageSet(STORE_KEY, JSON.stringify(state));
+    state.updatedAt = new Date().toISOString();
+    if (state.id === untouchedId) untouchedId = null;
+    persistLocal();
+    cloudSchedule(state);
 }
 
 function indexOf(id) {
@@ -227,7 +324,10 @@ function snapshot() {
 
 function undo() {
     if (!undoStack.length) return;
-    state = JSON.parse(undoStack.pop());
+    const restored = normalizeCase(JSON.parse(undoStack.pop()));
+    restored.id = state.id;
+    cases[state.id] = restored;
+    state = restored;
     saveState();
     refresh();
     syncHeader();
@@ -240,7 +340,167 @@ function updateUndoButton() {
     $('btn-undo').disabled = undoStack.length === 0;
 }
 
+// ---------- 雲端同步（Claude 版）----------
+const cloud = { db: null, downloads: null, ready: false, unsub: null, timers: {}, chains: {}, deleting: {} };
+
+function setSync(text, kind) {
+    const node = $('sync');
+    node.textContent = text;
+    node.className = 'sync' + (kind ? ' ' + kind : '');
+}
+
+async function connectCloud() {
+    if (!inArtifact) {
+        setSync(window.EMBED ? '單檔版，資料存在這台電腦' : '資料存在這台裝置', 'local');
+        return;
+    }
+    let db = null;
+    let downloads = null;
+    try {
+        [db, downloads] = await Promise.all([window.claude.use('db'), window.claude.use('downloads')]);
+    } catch (e) {
+        db = null;
+    }
+    cloud.downloads = downloads || null;
+    if (!db) {
+        setSync('未登入，資料只存在這個瀏覽器', 'local');
+        return;
+    }
+    cloud.db = db;
+    setSync('雲端同步中…', 'busy');
+    try {
+        const snap = await db.collection('cases').get();
+        let changedCurrent = false;
+        snap.docs.forEach(doc => {
+            const remote = normalizeCase(doc.data());
+            if (!remote) return;
+            remote.id = doc.id;
+            const local = cases[remote.id];
+            if (!local || remote.updatedAt > local.updatedAt) {
+                cases[remote.id] = remote;
+                if (state && remote.id === state.id) changedCurrent = true;
+            }
+        });
+        // 雲端已有案件時，丟掉這裡自動建立、還沒動過的空白案件
+        if (untouchedId && cases[untouchedId] && snap.docs.length) {
+            const dropped = untouchedId;
+            delete cases[dropped];
+            untouchedId = null;
+            if (state && state.id === dropped) {
+                settings.currentId = sortedCases()[0].id;
+                changedCurrent = true;
+            }
+        }
+        // 這台裝置有、雲端沒有或比較舊的，推上去
+        const remoteIds = new Set(snap.docs.map(d => d.id));
+        Object.values(cases).forEach(c => {
+            if (c.id === untouchedId) return;
+            const doc = snap.docs.find(d => d.id === c.id);
+            const remoteUpdated = doc ? (doc.data().updatedAt || '') : '';
+            if (!remoteIds.has(c.id) || c.updatedAt > remoteUpdated) cloudSchedule(c);
+        });
+        cloud.ready = true;
+        persistLocal();
+        if (changedCurrent) {
+            state = cases[settings.currentId] || cases[state.id];
+            settings.currentId = state.id;
+            persistLocal();
+            undoStack = [];
+            updateUndoButton();
+            refresh();
+            syncHeader();
+            showReadout(toKey(dates[0]));
+        }
+        cloud.unsub = db.collection('cases').onSnapshot(onCloudSnapshot, () => setSync('雲端連線中斷，資料仍存在本機', 'bad'));
+        setSync('雲端同步', 'ok');
+        updateCaseButton();
+    } catch (e) {
+        setSync('雲端讀取失敗，資料存在本機', 'bad');
+    }
+}
+
+function onCloudSnapshot(snap) {
+    let touched = false;
+    snap.docChanges().forEach(change => {
+        const id = change.doc.id;
+        if (change.type === 'removed') {
+            if (cases[id] && !cloud.deleting[id]) {
+                delete cases[id];
+                touched = true;
+                if (state && state.id === id) ensureCurrent();
+            }
+            return;
+        }
+        const remote = normalizeCase(change.doc.data());
+        if (!remote) return;
+        remote.id = id;
+        const local = cases[id];
+        if (!local || remote.updatedAt > local.updatedAt) {
+            cases[id] = remote;
+            touched = true;
+            if (state && state.id === id) {
+                state = remote;
+                refresh();
+                syncHeader();
+                if ($('settings').open) buildStepsTable();
+            }
+        }
+    });
+    if (touched) {
+        persistLocal();
+        updateCaseButton();
+        if ($('case-sheet').open) renderCaseList();
+    }
+}
+
+// 同一份案件一次只寫一筆，並把連續的修改合併成一次寫入
+function cloudSchedule(c) {
+    if (!cloud.db) return;
+    clearTimeout(cloud.timers[c.id]);
+    cloud.timers[c.id] = setTimeout(() => cloudWrite(c.id), 800);
+}
+
+function cloudWrite(id) {
+    const c = cases[id];
+    if (!c || !cloud.db) return;
+    const body = JSON.parse(JSON.stringify(c));
+    cloud.chains[id] = (cloud.chains[id] || Promise.resolve()).then(async () => {
+        setSync('雲端同步中…', 'busy');
+        try {
+            await cloud.db.doc('cases/' + id).set(body);
+            setSync('雲端同步', 'ok');
+        } catch (e) {
+            setSync('雲端儲存失敗，資料仍存在本機', 'bad');
+        }
+    });
+}
+
+function cloudDelete(id) {
+    if (!cloud.db) return;
+    cloud.deleting[id] = true;
+    clearTimeout(cloud.timers[id]);
+    cloud.chains[id] = (cloud.chains[id] || Promise.resolve()).then(async () => {
+        try {
+            await cloud.db.doc('cases/' + id).delete();
+        } catch (e) {
+            // 刪不掉就留著，下次同步會再看到
+        }
+        setTimeout(() => { delete cloud.deleting[id]; }, 5000);
+    });
+}
+
 // ---------- 國定假日 ----------
+// 內建的精簡資料：只列與「平日上班、週末放假」不同的日子
+function embeddedHolidays(year) {
+    const rows = window.TW_HOLIDAYS && window.TW_HOLIDAYS[String(year)];
+    if (!rows) return null;
+    const days = {};
+    rows.forEach(([md, description, isHoliday]) => {
+        days[`${year}-${md.slice(0, 2)}-${md.slice(2, 4)}`] = { isHoliday: !!isHoliday, description: description || '' };
+    });
+    return days;
+}
+
 function parseHolidayData(list) {
     const days = {};
     for (const item of list) {
@@ -268,6 +528,12 @@ async function fetchHolidayYear(year) {
 async function ensureHolidays(year) {
     if (holidays[year]) return;
 
+    const embedded = embeddedHolidays(year);
+    if (embedded) {
+        holidays[year] = { status: 'ok', days: embedded };
+        return;
+    }
+
     const cached = storageGet(HOLIDAY_KEY_PREFIX + year);
     if (cached) {
         try {
@@ -294,7 +560,15 @@ async function ensureHolidays(year) {
 
 function holidayInfo(date) {
     const yearData = holidays[date.getFullYear()];
-    return yearData ? yearData.days[toKey(date)] : undefined;
+    if (!yearData) return undefined;
+    const info = yearData.days[toKey(date)];
+    if (info) return info;
+    // 精簡資料沒列的日子：平日上班、週末放假
+    if (yearData.status === 'ok') {
+        const weekend = date.getDay() === 0 || date.getDay() === 6;
+        return { isHoliday: weekend, description: '' };
+    }
+    return undefined;
 }
 
 function isWorkday(date) {
@@ -467,7 +741,19 @@ function refresh() {
     if ($('settings').open) syncStepDates();
 }
 
+function caseLabel(c) {
+    return c.name || c.caseNo || '未命名案件';
+}
+
+function updateCaseButton() {
+    $('case-btn-no').textContent = state.caseNo || '';
+    $('case-btn-name').textContent = state.name || (state.caseNo ? '' : '未命名案件');
+    const n = Object.keys(cases).length;
+    $('case-btn').title = `共 ${n} 個案件，點一下切換`;
+}
+
 function renderIsland() {
+    updateCaseButton();
     const ai = indexOf(state.activeId);
     const active = state.steps[ai];
     $('active-name').textContent = active.name;
@@ -531,7 +817,7 @@ function updateRangeButtons() {
     $('range-reset').hidden = state.extraBefore === 0 && state.extraAfter === 0;
 }
 
-// 回傳是否有年份的假日資料剛從快取取得
+// 回傳是否有年份的假日資料剛從內建或快取取得
 function loadHolidayYears() {
     const { start, end } = stripRange();
     let changed = false;
@@ -565,7 +851,7 @@ function renderStrip() {
         for (let k = 0; k < 7; k++) {
             const day = addDays(week, k);
             if (day.getDate() === 1) {
-                if (first || day.getMonth() === 0) label.append(el('span', 'year', fmtYear(day.getFullYear()) + (state.era === 'ad' ? '' : '年')));
+                if (first || day.getMonth() === 0) label.append(el('span', 'year', fmtYear(day.getFullYear()) + (settings.era === 'ad' ? '' : '年')));
                 label.append(document.createTextNode(`${day.getMonth() + 1}月`));
             }
         }
@@ -656,10 +942,13 @@ function renderMeta() {
     const meta = $('doc-meta');
     meta.replaceChildren();
     const rule = state.startRule === 'same' ? '當日起算（起始日算第 1 天）' : '次日起算（始日不算入）';
-    meta.append(document.createTextNode(`天數${rule}｜製表日期 ${fmtDate(new Date())}`));
+    const parts = [`天數${rule}`];
+    if (state.tier) parts.push(`金額級距：${TIER_NAMES[state.tier]}`);
+    parts.push(`製表日期 ${fmtDate(new Date())}`);
+    meta.append(document.createTextNode(parts.join('｜')));
     if (failed.length) {
         meta.append(document.createTextNode('｜'));
-        meta.append(el('span', 'warn', `無法載入 ${failed.join('、')} 年國定假日，工作天僅扣除週末`));
+        meta.append(el('span', 'warn', `無法載入 ${failed.map(y => fmtYear(Number(y))).join('、')} 年國定假日，工作天僅扣除週末`));
     } else if (loading) {
         meta.append(document.createTextNode('｜假日資料載入中…'));
     }
@@ -969,7 +1258,6 @@ function buildStepsTable() {
             slot.append(opt);
         }
         slot.value = step.slot;
-        // 相隔含半天時，時段由推算決定
         slotTd.append(slot);
 
         const rollTd = el('td');
@@ -1007,7 +1295,8 @@ function buildStepsTable() {
         updateSlotLock(step);
     });
     document.querySelectorAll('input[name="startRule"]').forEach(r => { r.checked = r.value === state.startRule; });
-    document.querySelectorAll('input[name="era"]').forEach(r => { r.checked = r.value === state.era; });
+    document.querySelectorAll('input[name="era"]').forEach(r => { r.checked = r.value === settings.era; });
+    $('tier').value = state.tier;
     syncStartMonthInputs();
 }
 
@@ -1208,30 +1497,23 @@ function openSettings() {
     $('settings').showModal();
 }
 
-// ---------- 白天／黑夜色調 ----------
-function currentTheme() {
-    return document.documentElement.dataset.theme ||
-        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-}
-
-function applyTheme(theme) {
-    if (theme === 'light' || theme === 'dark') document.documentElement.dataset.theme = theme;
-    $('theme-label').textContent = currentTheme() === 'dark' ? '白天' : '黑夜';
-}
-
-function toggleTheme() {
-    const next = currentTheme() === 'dark' ? 'light' : 'dark';
-    applyTheme(next);
-    storageSet(THEME_KEY, next);
+// ---------- 外觀：跟隨系統／白天／黑夜 ----------
+function applyTheme() {
+    if (settings.theme === 'light' || settings.theme === 'dark') document.documentElement.dataset.theme = settings.theme;
+    else delete document.documentElement.dataset.theme;
+    document.querySelectorAll('[data-theme-pick]').forEach(btn => {
+        btn.classList.toggle('on', btn.dataset.themePick === settings.theme);
+        btn.setAttribute('aria-checked', String(btn.dataset.themePick === settings.theme));
+    });
 }
 
 // ---------- 週曆起始月份 ----------
 function syncStartMonthInputs() {
     const yearInput = $('start-year');
-    $('start-year-unit').textContent = state.era === 'ad' ? '年（西元）' : '年（民國）';
+    $('start-year-unit').textContent = settings.era === 'ad' ? '年（西元）' : '年（民國）';
     if (state.startMonth) {
         const [y, m] = state.startMonth.split('-').map(Number);
-        yearInput.value = state.era === 'ad' ? y : y - 1911;
+        yearInput.value = settings.era === 'ad' ? y : y - 1911;
         $('start-month').value = m;
     } else {
         yearInput.value = '';
@@ -1253,16 +1535,480 @@ function applyStartMonth() {
     syncStartMonthInputs();
 }
 
-// ---------- 案名、備註 ----------
+// ---------- 案號、案名、備註 ----------
 function autoGrow(textarea) {
     textarea.style.height = 'auto';
     textarea.style.height = `${textarea.scrollHeight + 2}px`;
 }
 
 function syncHeader() {
-    $('doc-title').value = state.title;
+    $('doc-caseno').value = state.caseNo;
+    $('doc-title').value = state.name;
     $('doc-note').value = state.note;
     autoGrow($('doc-note'));
+    updateCaseButton();
+}
+
+// ---------- 底部面板 ----------
+const sheetTimers = new WeakMap();
+
+function openSheet(dialog) {
+    // 正在收合時又被打開（例如連續兩個選擇）就取消收合
+    clearTimeout(sheetTimers.get(dialog));
+    sheetTimers.delete(dialog);
+    dialog.classList.remove('closing');
+    if (!dialog.open) dialog.showModal();
+}
+
+function closeSheet(dialog) {
+    if (!dialog.open || dialog.classList.contains('closing')) return;
+    dialog.classList.add('closing');
+    const animated = getComputedStyle(dialog).animationName !== 'none';
+    const done = () => {
+        sheetTimers.delete(dialog);
+        if (!dialog.classList.contains('closing')) return;
+        dialog.classList.remove('closing');
+        if (dialog.open) dialog.close();
+    };
+    sheetTimers.set(dialog, setTimeout(done, animated ? 200 : 0));
+}
+
+// 通用選擇：回傳使用者按的 value；關閉或按取消回傳 null
+function askChoice(title, message, options) {
+    const dialog = $('choice-sheet');
+    $('choice-title').textContent = title;
+    $('choice-message').textContent = message || '';
+    $('choice-message').hidden = !message;
+    const box = $('choice-buttons');
+    box.replaceChildren();
+    return new Promise(resolve => {
+        let settled = false;
+        const finish = value => {
+            if (settled) return;
+            settled = true;
+            dialog.removeEventListener('close', onClose);
+            closeSheet(dialog);
+            resolve(value);
+        };
+        const onClose = () => finish(null);
+        options.forEach(opt => {
+            const btn = el('button', 'sheet-item' + (opt.kind ? ' ' + opt.kind : ''));
+            btn.type = 'button';
+            btn.append(el('span', 'sheet-item-title', opt.label));
+            if (opt.sub) btn.append(el('span', 'sheet-item-sub', opt.sub));
+            btn.addEventListener('click', () => finish(opt.value));
+            box.append(btn);
+        });
+        dialog.addEventListener('close', onClose);
+        openSheet(dialog);
+    });
+}
+
+// ---------- 案件清單 ----------
+function sortedCases() {
+    return Object.values(cases).sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+}
+
+function nextMilestoneText(c) {
+    // 用案件自己的規則算一次，不碰目前案件的狀態
+    const keep = { state, dates, slots, rolled, periodMap };
+    state = c;
+    compute();
+    const today = new Date();
+    let text = '';
+    for (let i = 0; i < c.steps.length; i++) {
+        if (dates[i] >= today) {
+            text = `${c.steps[i].name} ${fmtDate(dates[i])}`;
+            break;
+        }
+    }
+    if (!text) text = `${c.steps[c.steps.length - 1].name} ${fmtDate(dates[c.steps.length - 1])}（已過）`;
+    ({ state, dates, slots, rolled, periodMap } = keep);
+    return text;
+}
+
+function renderCaseList() {
+    const list = $('case-list');
+    list.replaceChildren();
+    sortedCases().forEach(c => {
+        const li = el('li', 'case-row' + (c.id === state.id ? ' current' : ''));
+        const main = el('button', 'case-main');
+        main.type = 'button';
+        main.append(el('span', 'case-row-no', c.caseNo || '（無案號）'));
+        main.append(el('span', 'case-row-name', c.name || '未命名案件'));
+        main.append(el('span', 'case-row-next', nextMilestoneText(c)));
+        main.addEventListener('click', () => {
+            switchCase(c.id);
+            closeSheet($('case-sheet'));
+        });
+        const more = el('button', 'case-more', '⋯');
+        more.type = 'button';
+        more.setAttribute('aria-label', `「${caseLabel(c)}」的更多操作`);
+        more.addEventListener('click', () => caseActions(c.id));
+        li.append(main, more);
+        list.append(li);
+    });
+    $('case-new').disabled = Object.keys(cases).length >= MAX_CASES;
+}
+
+async function caseActions(id) {
+    const c = cases[id];
+    if (!c) return;
+    const choice = await askChoice(caseLabel(c), '', [
+        { label: '複製成新案件', value: 'copy' },
+        { label: '匯出這個案件…', value: 'export' },
+        { label: '刪除這個案件', value: 'delete', kind: 'danger' },
+        { label: '取消', value: null }
+    ]);
+    if (choice === 'copy') {
+        const copy = cloneCase(c, '（複本）');
+        cases[copy.id] = copy;
+        persistLocal();
+        cloudSchedule(copy);
+        switchCase(copy.id);
+        closeSheet($('case-sheet'));
+        toast('已複製成新案件');
+    } else if (choice === 'export') {
+        switchCase(id);
+        closeSheet($('case-sheet'));
+        openSheet($('export-sheet'));
+    } else if (choice === 'delete') {
+        const sure = await askChoice(`確定刪除「${caseLabel(c)}」？`, '刪除後無法復原。', [
+            { label: '確定刪除', value: 'yes', kind: 'danger' },
+            { label: '取消', value: null }
+        ]);
+        if (sure === 'yes') deleteCase(id);
+    }
+}
+
+function deleteCase(id) {
+    delete cases[id];
+    // 記住已刪除的案件，單檔附的資料不會讓它復活
+    if (!settings.hidden.includes(id)) settings.hidden.push(id);
+    if (settings.hidden.length > 200) settings.hidden.shift();
+    cloudDelete(id);
+    if (state.id === id) ensureCurrent();
+    persistLocal();
+    renderCaseList();
+    toast('已刪除');
+}
+
+function addCase() {
+    if (Object.keys(cases).length >= MAX_CASES) return;
+    const c = newCase('');
+    cases[c.id] = c;
+    persistLocal();
+    cloudSchedule(c);
+    switchCase(c.id);
+    closeSheet($('case-sheet'));
+    $('doc-title').focus();
+    toast('已新增案件，請在上方填案號與案名');
+}
+
+function switchCase(id) {
+    if (!cases[id]) return;
+    state = cases[id];
+    settings.currentId = id;
+    saveSettings();
+    undoStack = [];
+    updateUndoButton();
+    syncHeader();
+    refresh();
+    showReadout(toKey(dates[0]));
+}
+
+// 確保一定有目前案件：沒有就建一個
+function ensureCurrent() {
+    if (settings.currentId && cases[settings.currentId]) {
+        state = cases[settings.currentId];
+    } else {
+        const first = sortedCases()[0];
+        if (first) {
+            state = first;
+        } else {
+            // 還沒動過之前不推上雲端，雲端有案件時會直接改用雲端的
+            state = newCase('');
+            cases[state.id] = state;
+            untouchedId = state.id;
+        }
+        settings.currentId = state.id;
+    }
+    persistLocal();
+    undoStack = [];
+    if ($('btn-undo')) updateUndoButton();
+    if (document.body.dataset.ready) {
+        syncHeader();
+        refresh();
+    }
+}
+
+// ---------- 匯入 ----------
+// 從 .json 備份或單檔 .html 裡找出案件
+function parseImport(text) {
+    let data = null;
+    const trimmed = text.trim();
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+        data = JSON.parse(trimmed);
+    } else {
+        const m = text.match(/\/\*__EMBED_START__\*\/([\s\S]*?)\/\*__EMBED_END__\*\//);
+        if (!m) throw new Error('not-found');
+        data = JSON.parse(m[1].replace(/<\\\//g, '</'));
+    }
+    let list = [];
+    if (Array.isArray(data)) list = data;
+    else if (data && Array.isArray(data.cases)) list = data.cases;
+    else if (data && Array.isArray(data.steps)) list = [data];
+    return list.map(normalizeCase).filter(Boolean);
+}
+
+// 把匯入的案件放進清單；同一案件已存在時依 mode 決定要不要問
+async function mergeImported(list, ask) {
+    let added = 0;
+    let replaced = 0;
+    let skipped = 0;
+    for (const c of list) {
+        const local = cases[c.id];
+        if (!local) {
+            cases[c.id] = c;
+            settings.hidden = settings.hidden.filter(x => x !== c.id);
+            cloudSchedule(c);
+            added++;
+            continue;
+        }
+        if (local.updatedAt === c.updatedAt) {
+            skipped++;
+            continue;
+        }
+        if (!ask && local.updatedAt > c.updatedAt) {
+            skipped++;
+            continue;
+        }
+        const newer = c.updatedAt > local.updatedAt ? '匯入的比較新' : '這裡的比較新';
+        const choice = await askChoice(`「${caseLabel(c)}」已經有了`, `${newer}。要怎麼處理？`, [
+            { label: '覆蓋這裡的', value: 'overwrite', sub: '用匯入的取代' },
+            { label: '另存為新案件', value: 'copy', sub: '兩個都留著' },
+            { label: '略過', value: null }
+        ]);
+        if (choice === 'overwrite') {
+            cases[c.id] = c;
+            cloudSchedule(c);
+            replaced++;
+            if (state.id === c.id) state = c;
+        } else if (choice === 'copy') {
+            const copy = cloneCase(c, '（匯入）');
+            cases[copy.id] = copy;
+            cloudSchedule(copy);
+            added++;
+        } else {
+            skipped++;
+        }
+    }
+    persistLocal();
+    return { added, replaced, skipped };
+}
+
+async function importFromFile(file) {
+    let list;
+    try {
+        list = parseImport(await file.text());
+    } catch (e) {
+        toast('讀不懂這個檔案，請選 .json 備份或這個工具匯出的單檔');
+        return;
+    }
+    if (!list.length) {
+        toast('檔案裡沒有案件');
+        return;
+    }
+    const result = await mergeImported(list, true);
+    const first = list.find(c => cases[c.id]);
+    if (first && (result.added || result.replaced)) switchCase(cases[first.id] ? first.id : state.id);
+    else refresh();
+    if ($('case-sheet').open) renderCaseList();
+    toast(`匯入完成：新增 ${result.added}、覆蓋 ${result.replaced}、略過 ${result.skipped}`);
+}
+
+// ---------- 匯出 ----------
+function utf8ToB64(text) {
+    return btoa(String.fromCharCode(...new TextEncoder().encode(text)));
+}
+
+function b64ToUtf8(b64) {
+    const bytes = Uint8Array.from(atob(b64), ch => ch.charCodeAt(0));
+    return new TextDecoder().decode(bytes);
+}
+
+async function saveFile(filename, data, mime) {
+    if (cloud.downloads) {
+        try {
+            await cloud.downloads.save({ filename, data });
+            toast(`已儲存 ${filename}`);
+            return true;
+        } catch (e) {
+            if (e && e.code === 'declined') return false;
+            toast('儲存失敗：' + (e && e.message ? e.message : '請再試一次'));
+            return false;
+        }
+    }
+    if (inArtifact) {
+        toast('這裡無法存檔，請用單檔版或登入後再試');
+        return false;
+    }
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mime || 'application/octet-stream' });
+    const url = URL.createObjectURL(blob);
+    const a = el('a');
+    a.href = url;
+    a.download = filename;
+    document.body.append(a);
+    a.click();
+    // 太早移除連結，瀏覽器會拿不到檔名
+    setTimeout(() => {
+        a.remove();
+        URL.revokeObjectURL(url);
+    }, 5000);
+    toast(`已下載 ${filename}`);
+    return true;
+}
+
+function exportPayload(list) {
+    return {
+        format: 'procure-calendar',
+        version: 3,
+        app: APP_VERSION,
+        exportedAt: new Date().toISOString(),
+        cases: list.map(c => JSON.parse(JSON.stringify(c)))
+    };
+}
+
+function exportJson(all) {
+    const list = all ? sortedCases() : [state];
+    const name = all ? `採購時程_全部案件_${stamp()}.json` : `採購時程_${safeName(state.caseNo || state.name)}_${stamp()}.json`;
+    saveFile(name, JSON.stringify(exportPayload(list), null, 2), 'application/json');
+}
+
+// 單檔：把目前的程式（內建在頁面裡的範本）加上資料，產生一個可以離線開的 .html
+function buildStandalone(list) {
+    const node = document.getElementById('self-template');
+    const b64 = node ? node.textContent.trim() : '';
+    if (!b64) return null;
+    const template = b64ToUtf8(b64);
+    const data = JSON.stringify(exportPayload(list)).replace(/<\//g, '<\\/');
+    const dataMark = '__DATA' + '__';
+    const selfMark = '__SELF' + '__';
+    return template.replace(dataMark, () => data).replace(selfMark, () => b64);
+}
+
+function exportHtml(all) {
+    const list = all ? sortedCases() : [state];
+    const html = buildStandalone(list);
+    if (!html) {
+        toast('這個版本沒有內建單檔範本，請用發行版');
+        return;
+    }
+    const name = all ? `採購時程日曆_全部案件_${stamp()}.html` : `採購時程日曆_${safeName(state.caseNo || state.name)}_${stamp()}.html`;
+    saveFile(name, html, 'text/html');
+}
+
+// ---------- 行事曆 .ics ----------
+function icsEscape(text) {
+    return String(text).replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+
+// 每行最多 75 個位元組，超過要折行（下一行以空白開頭）
+function icsFold(line) {
+    const bytes = new TextEncoder().encode(line);
+    if (bytes.length <= 75) return line;
+    const out = [];
+    let current = '';
+    let size = 0;
+    for (const ch of line) {
+        const len = new TextEncoder().encode(ch).length;
+        if (size + len > (out.length ? 74 : 75)) {
+            out.push(current);
+            current = '';
+            size = 0;
+        }
+        current += ch;
+        size += len;
+    }
+    if (current) out.push(current);
+    return out.join('\r\n ');
+}
+
+function buildIcs(c) {
+    const keep = { state, dates, slots, rolled, periodMap };
+    state = c;
+    compute();
+    const now = new Date();
+    const dtstamp = `${now.getUTCFullYear()}${pad(now.getUTCMonth() + 1)}${pad(now.getUTCDate())}T${pad(now.getUTCHours())}${pad(now.getUTCMinutes())}${pad(now.getUTCSeconds())}Z`;
+    const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//採購時程日曆//TW', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+        `X-WR-CALNAME:${icsEscape((c.caseNo ? c.caseNo + ' ' : '') + (c.name || '採購時程'))}`];
+    c.steps.forEach((step, i) => {
+        const d = dates[i];
+        const ymd = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
+        const next = addDays(d, 1);
+        const ymdNext = `${next.getFullYear()}${pad(next.getMonth() + 1)}${pad(next.getDate())}`;
+        const slot = slots[i] !== 'day' ? SLOT_NAMES[slots[i]] : '';
+        const desc = [c.name, i === 0 ? '起點' : `${c.steps[i - 1].name}後 ${offsetText(step)}`, step.note, rolled[i] ? '遇假日順延' : '']
+            .filter(Boolean).join('｜');
+        lines.push('BEGIN:VEVENT',
+            `UID:${c.id}-${step.id}@procure-calendar`,
+            `DTSTAMP:${dtstamp}`,
+            `DTSTART;VALUE=DATE:${ymd}`,
+            `DTEND;VALUE=DATE:${ymdNext}`,
+            `SUMMARY:${icsEscape((c.caseNo ? `【${c.caseNo}】` : '') + (slot ? slot + ' ' : '') + step.name)}`,
+            `DESCRIPTION:${icsEscape(desc)}`,
+            'END:VEVENT');
+    });
+    lines.push('END:VCALENDAR');
+    ({ state, dates, slots, rolled, periodMap } = keep);
+    return lines.map(icsFold).join('\r\n') + '\r\n';
+}
+
+// 最簡單的 zip（不壓縮），給無法直接存 .ics 的環境用
+function crc32(bytes) {
+    let crc = -1;
+    for (let i = 0; i < bytes.length; i++) {
+        crc ^= bytes[i];
+        for (let k = 0; k < 8; k++) crc = (crc >>> 1) ^ (0xEDB88320 & -(crc & 1));
+    }
+    return (crc ^ -1) >>> 0;
+}
+
+function zipStore(files) {
+    const parts = [];
+    const central = [];
+    let offset = 0;
+    const now = new Date();
+    const dosTime = (now.getHours() << 11) | (now.getMinutes() << 5) | (now.getSeconds() >> 1);
+    const dosDate = ((now.getFullYear() - 1980) << 9) | ((now.getMonth() + 1) << 5) | now.getDate();
+    const u16 = n => [n & 255, (n >> 8) & 255];
+    const u32 = n => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
+    files.forEach(({ name, data }) => {
+        const nameBytes = new TextEncoder().encode(name);
+        const crc = crc32(data);
+        const local = new Uint8Array([0x50, 0x4b, 3, 4, ...u16(20), ...u16(0x800), ...u16(0), ...u16(dosTime), ...u16(dosDate),
+            ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length), ...u16(0), ...nameBytes]);
+        parts.push(local, data);
+        central.push(new Uint8Array([0x50, 0x4b, 1, 2, ...u16(20), ...u16(20), ...u16(0x800), ...u16(0), ...u16(dosTime), ...u16(dosDate),
+            ...u32(crc), ...u32(data.length), ...u32(data.length), ...u16(nameBytes.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0),
+            ...u32(0), ...u32(offset), ...nameBytes]));
+        offset += local.length + data.length;
+    });
+    const centralSize = central.reduce((n, c) => n + c.length, 0);
+    const end = new Uint8Array([0x50, 0x4b, 5, 6, ...u16(0), ...u16(0), ...u16(files.length), ...u16(files.length), ...u32(centralSize), ...u32(offset), ...u16(0)]);
+    return new Blob([...parts, ...central, end], { type: 'application/zip' });
+}
+
+function exportIcs() {
+    const ics = buildIcs(state);
+    const base = `採購時程_${safeName(state.caseNo || state.name)}_${stamp()}`;
+    if (cloud.downloads) {
+        // Claude 版存檔只接受特定副檔名，.ics 先包成 .zip
+        const zip = zipStore([{ name: `${base}.ics`, data: new TextEncoder().encode(ics) }]);
+        saveFile(`${base}.zip`, zip, 'application/zip');
+    } else {
+        saveFile(`${base}.ics`, ics, 'text/calendar');
+    }
 }
 
 // ---------- 事件綁定 ----------
@@ -1307,9 +2053,15 @@ function bindEvents() {
         flash(key);
     });
 
-    $('doc-title').addEventListener('input', e => {
-        state.title = e.target.value;
+    $('doc-caseno').addEventListener('input', e => {
+        state.caseNo = e.target.value.slice(0, 30);
         saveState();
+        updateCaseButton();
+    });
+    $('doc-title').addEventListener('input', e => {
+        state.name = e.target.value.slice(0, 80);
+        saveState();
+        updateCaseButton();
     });
     $('doc-note').addEventListener('input', e => {
         state.note = e.target.value;
@@ -1338,8 +2090,78 @@ function bindEvents() {
     });
     $('btn-undo').addEventListener('click', undo);
     $('btn-settings').addEventListener('click', openSettings);
-    $('btn-print').addEventListener('click', () => window.print());
-    $('btn-theme').addEventListener('click', toggleTheme);
+
+    // 案件
+    const openCases = () => {
+        renderCaseList();
+        openSheet($('case-sheet'));
+    };
+    $('btn-cases').addEventListener('click', openCases);
+    $('case-btn').addEventListener('click', openCases);
+    $('case-new').addEventListener('click', addCase);
+    $('case-import').addEventListener('click', () => $('import-file').click());
+
+    // 更多
+    $('btn-more').addEventListener('click', () => {
+        $('more-print-sub').textContent = inArtifact ? '這裡無法開啟列印視窗，請先「匯出單檔」再從檔案列印' : '直接開啟列印視窗，A4 直式';
+        $('about').textContent = `採購時程日曆 ${APP_VERSION}｜${inArtifact ? 'Claude 版' : (window.EMBED ? '單檔版' : '網頁版')}｜假日資料：政府行政機關辦公日曆表 ${Object.keys(window.TW_HOLIDAYS || {}).map(y => fmtYear(Number(y))).join('、')} 年`;
+        openSheet($('more-sheet'));
+    });
+    document.querySelectorAll('[data-theme-pick]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            settings.theme = btn.dataset.themePick;
+            saveSettings();
+            applyTheme();
+        });
+    });
+    $('more-export').addEventListener('click', () => {
+        closeSheet($('more-sheet'));
+        $('exp-ics-sub').textContent = cloud.downloads
+            ? '節點變成行事曆事件；這裡會存成 .zip，解壓後匯入 Google 日曆'
+            : '節點變成行事曆事件，匯入 Google 日曆（設定 → 匯入）';
+        $('export-note').textContent = inArtifact && !cloud.downloads ? '這裡沒有存檔權限，請登入後再試，或在單檔版匯出。' : '';
+        openSheet($('export-sheet'));
+    });
+    $('more-import').addEventListener('click', () => {
+        closeSheet($('more-sheet'));
+        $('import-file').click();
+    });
+    $('more-print').addEventListener('click', () => {
+        closeSheet($('more-sheet'));
+        if (inArtifact) {
+            toast('這裡無法列印，請先匯出單檔再從檔案列印');
+            return;
+        }
+        setTimeout(() => window.print(), 250);
+    });
+
+    // 匯出
+    $('exp-html-one').addEventListener('click', () => exportHtml(false));
+    $('exp-html-all').addEventListener('click', () => exportHtml(true));
+    $('exp-json-one').addEventListener('click', () => exportJson(false));
+    $('exp-json-all').addEventListener('click', () => exportJson(true));
+    $('exp-ics').addEventListener('click', exportIcs);
+
+    $('import-file').addEventListener('change', async e => {
+        const file = e.target.files && e.target.files[0];
+        e.target.value = '';
+        if (!file) return;
+        closeSheet($('case-sheet'));
+        closeSheet($('more-sheet'));
+        await importFromFile(file);
+    });
+
+    document.querySelectorAll('.sheet-dialog').forEach(dialog => {
+        dialog.addEventListener('cancel', e => {
+            e.preventDefault();
+            closeSheet(dialog);
+        });
+        dialog.addEventListener('click', e => {
+            // 點到面板外的背景
+            if (e.target === dialog) closeSheet(dialog);
+        });
+        dialog.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => closeSheet(dialog)));
+    });
 
     const body = $('steps-body');
     body.addEventListener('input', onStepInput);
@@ -1357,11 +2179,16 @@ function bindEvents() {
             refresh();
         });
     });
+    $('tier').addEventListener('change', e => {
+        state.tier = TIER_NAMES[e.target.value] ? e.target.value : '';
+        saveState();
+        renderMeta();
+    });
 
     document.querySelectorAll('input[name="era"]').forEach(radio => {
         radio.addEventListener('change', () => {
-            state.era = radio.value === 'ad' ? 'ad' : 'roc';
-            saveState();
+            settings.era = radio.value === 'ad' ? 'ad' : 'roc';
+            saveSettings();
             refresh();
             syncStartMonthInputs();
         });
@@ -1396,14 +2223,41 @@ function normalizeAnchor() {
     refresh();
 }
 
-function init() {
-    applyTheme(storageGet(THEME_KEY));
+async function init() {
+    loadLocal();
+    applyTheme();
     bindEvents();
+
+    // 單檔版：檔案裡附的案件先放進清單（這裡的資料比較新就不動）
+    const embed = window.EMBED && Array.isArray(window.EMBED.cases) ? window.EMBED.cases.map(normalizeCase).filter(Boolean) : [];
+    const hadNothing = Object.keys(cases).length === 0;
+    if (embed.length) {
+        embed.forEach(c => {
+            const local = cases[c.id];
+            if (!local && !settings.hidden.includes(c.id)) cases[c.id] = c;
+        });
+        if (hadNothing) settings.currentId = embed[0].id;
+    }
+
+    ensureCurrent();
+    document.body.dataset.ready = '1';
     syncHeader();
     refresh();
     normalizeAnchor();
     updateUndoButton();
     showReadout(state.anchorDate);
+
+    // 單檔版裡的案件比這台電腦存的還新：問一下要不要換成新的
+    const newer = embed.filter(c => cases[c.id] && cases[c.id] !== c && c.updatedAt > cases[c.id].updatedAt);
+    if (newer.length) {
+        const result = await mergeImported(newer, true);
+        if (result.replaced) {
+            state = cases[state.id];
+            syncHeader();
+            refresh();
+        }
+    }
+    connectCloud();
 }
 
 init();

@@ -156,6 +156,44 @@ textarea {
     font-weight: 600;
 }
 
+/* ---------- 案號、案名 ---------- */
+.head-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+}
+
+.doc-caseno {
+    flex: 0 0 auto;
+    width: 9em;
+    max-width: 40%;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    padding: 2px 6px;
+    margin-left: -6px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.doc-caseno:hover {
+    border-color: var(--rule);
+}
+
+.doc-caseno:focus {
+    outline: none;
+    border-color: var(--accent);
+}
+
+.head-row .doc-title {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
+    margin-left: 0;
+}
+
 /* ---------- 動態島 ---------- */
 .island {
     position: sticky;
@@ -167,6 +205,99 @@ textarea {
     background: var(--island);
     color: var(--island-ink);
     box-shadow: 0 0 0 1px var(--island-ring), 0 8px 20px rgba(0, 0, 0, 0.18);
+}
+
+.island-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.case-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    max-width: 75%;
+    padding: 4px 10px 4px 9px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.08);
+    color: var(--island-ink);
+    cursor: pointer;
+    font-size: 13px;
+    transition: background-color 0.15s, transform 0.15s;
+}
+
+.case-btn:hover {
+    background: rgba(255, 255, 255, 0.14);
+}
+
+.case-btn:active {
+    transform: scale(0.97);
+}
+
+.case-btn:focus-visible {
+    outline: 2px solid #fff;
+    outline-offset: 2px;
+}
+
+.case-btn .case-no {
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.case-btn .case-no:empty {
+    display: none;
+}
+
+.case-btn .case-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.case-btn .caret {
+    color: var(--island-muted);
+    font-size: 11px;
+}
+
+.sync {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 11px;
+    color: var(--island-muted);
+    white-space: nowrap;
+}
+
+.sync::before {
+    content: "";
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #9aa4b2;
+}
+
+.sync:empty {
+    display: none;
+}
+
+.sync.ok::before {
+    background: #30d158;
+}
+
+.sync.busy::before {
+    background: #ffd60a;
+    animation: blink 1s ease-in-out infinite;
+}
+
+.sync.bad::before {
+    background: #ff6b63;
 }
 
 .island-top {
@@ -614,29 +745,6 @@ textarea {
     stroke: none;
 }
 
-/* 目前是白天顯示月亮（切到黑夜），黑夜顯示太陽（切回白天） */
-.icon-sun {
-    display: none;
-}
-
-:root[data-theme="dark"] .icon-moon {
-    display: none;
-}
-
-:root[data-theme="dark"] .icon-sun {
-    display: block;
-}
-
-@media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .icon-moon {
-        display: none;
-    }
-
-    :root:not([data-theme="light"]) .icon-sun {
-        display: block;
-    }
-}
-
 .tool.primary .tool-icon {
     background: var(--accent);
     color: #fff;
@@ -927,6 +1035,320 @@ textarea {
     color: var(--holiday);
 }
 
+/* ---------- 底部面板 ---------- */
+.sheet-dialog {
+    width: min(100%, 560px);
+    max-width: 100%;
+    max-height: min(85vh, 85dvh);
+    margin: auto auto 0;
+    padding: 0;
+    border: 0;
+    border-radius: 20px 20px 0 0;
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: var(--shadow);
+    overflow: auto;
+    overscroll-behavior: contain;
+}
+
+.sheet-dialog[open] {
+    animation: sheet-in 0.22s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.sheet-dialog.closing {
+    animation: sheet-out 0.18s ease-in forwards;
+}
+
+.sheet-dialog::backdrop {
+    background: rgba(10, 14, 20, 0.45);
+}
+
+@keyframes sheet-in {
+    from { transform: translateY(32px); opacity: 0; }
+}
+
+@keyframes sheet-out {
+    to { transform: translateY(32px); opacity: 0; }
+}
+
+.sheet-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 8px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+.sheet-grip {
+    width: 36px;
+    height: 5px;
+    margin: 0 auto 2px;
+    border-radius: 3px;
+    background: var(--rule);
+}
+
+.sheet-title {
+    margin: 0;
+    font-size: 17px;
+}
+
+.sheet-list {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.sheet-item {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 2px;
+    width: 100%;
+    padding: 11px 14px;
+    border: 0;
+    border-bottom: 1px solid var(--rule);
+    background: var(--paper);
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.12s;
+}
+
+.sheet-item:last-child {
+    border-bottom: 0;
+}
+
+.sheet-item:hover {
+    background: var(--cell-alt);
+}
+
+.sheet-item:active {
+    background: var(--rule);
+}
+
+.sheet-item:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.sheet-item.danger .sheet-item-title {
+    color: var(--holiday);
+}
+
+.sheet-item-title {
+    font-weight: 600;
+}
+
+.sheet-item-sub {
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.sheet-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.choice-message {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.choice-message[hidden] {
+    display: none;
+}
+
+.about {
+    margin: 0;
+    font-size: 11px;
+    color: var(--muted);
+}
+
+.about:empty {
+    display: none;
+}
+
+/* 分段切換（外觀） */
+.seg-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.seg-label {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+.seg {
+    display: inline-flex;
+    padding: 3px;
+    border-radius: 10px;
+    background: var(--cell-alt);
+}
+
+.seg-btn {
+    padding: 5px 12px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    transition: background-color 0.15s, color 0.15s;
+}
+
+.seg-btn.on {
+    background: var(--paper);
+    color: var(--ink);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+
+.seg-btn:focus-visible {
+    outline: 2px solid var(--accent);
+}
+
+/* 案件清單 */
+.case-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.case-list:empty::after {
+    content: "還沒有案件";
+    display: block;
+    padding: 14px;
+    color: var(--muted);
+    text-align: center;
+}
+
+.case-row {
+    display: flex;
+    align-items: stretch;
+    border-bottom: 1px solid var(--rule);
+}
+
+.case-row:last-child {
+    border-bottom: 0;
+}
+
+.case-row.current {
+    background: var(--cell-alt);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+
+.case-main {
+    flex: 1;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 1px 8px;
+    align-items: baseline;
+    padding: 10px 12px;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    cursor: pointer;
+}
+
+.case-main:hover {
+    background: var(--cell-alt);
+}
+
+.case-main:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.case-row-no {
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.case-row-name {
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.case-row-next {
+    grid-column: 1 / -1;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+.case-more {
+    width: 44px;
+    border: 0;
+    border-left: 1px solid var(--rule);
+    background: transparent;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+}
+
+.case-more:hover {
+    background: var(--cell-alt);
+    color: var(--ink);
+}
+
+.case-more:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.mini-input.wide {
+    width: auto;
+    min-width: 220px;
+    max-width: 100%;
+}
+
+/* 短暫提示 */
+.toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    z-index: 30;
+    max-width: calc(100% - 32px);
+    padding: 9px 16px;
+    border-radius: 999px;
+    background: var(--island);
+    color: var(--island-ink);
+    font-size: 13px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+    transform: translateX(-50%);
+    animation: toast-in 0.2s ease;
+}
+
+.toast[hidden] {
+    display: none;
+}
+
+@keyframes toast-in {
+    from { transform: translate(-50%, 8px); opacity: 0; }
+}
+
+@media (min-width: 641px) {
+    .sheet-dialog {
+        margin-bottom: 24px;
+        border-radius: 20px;
+    }
+}
+
 /* ---------- 窄螢幕 ---------- */
 @media (max-width: 640px) {
     .sheet {
@@ -993,6 +1415,15 @@ textarea {
     }
 
 
+    .doc-caseno {
+        width: 7em;
+        font-size: 14px;
+    }
+
+    .case-btn {
+        max-width: 100%;
+    }
+
     .tool {
         min-width: 56px;
     }
@@ -1042,6 +1473,8 @@ textarea {
     .island,
     .toolbar,
     .panel,
+    .sheet-dialog,
+    .toast,
     .extend {
         display: none !important;
     }
@@ -1056,6 +1489,22 @@ textarea {
         padding: 0;
         box-shadow: none;
         border-radius: 0;
+    }
+
+    .head-row {
+        gap: 10px;
+    }
+
+    .doc-caseno {
+        width: auto;
+        max-width: none;
+        padding: 0;
+        margin: 0;
+        font-size: 14px;
+    }
+
+    .doc-caseno:placeholder-shown {
+        display: none;
     }
 
     .doc-title {
