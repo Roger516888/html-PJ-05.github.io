@@ -21,7 +21,7 @@ const DEFAULT_STEPS = [
     { name: '截止投標', offset: 28, unit: 'cal', slot: 'day', roll: true, note: '' },
     { name: '開標', offset: 1, unit: 'work', slot: 'am', roll: true, note: '' },
     { name: 'POC說明會', offset: 0.5, unit: 'cal', slot: 'pm', roll: true, note: '' },
-    { name: 'POC', offset: 14, unit: 'cal', slot: 'day', roll: true, note: '廠商申請空域 14 天' },
+    { name: 'POC', offset: 14, unit: 'cal', slot: 'day', roll: false, note: '廠商申請空域 14 天，假日也可安排' },
     { name: '評選', offset: 7, unit: 'cal', slot: 'day', roll: true, note: '' },
     { name: '決標', offset: 3, unit: 'work', slot: 'day', roll: true, note: '' },
     { name: '備貨期限', offset: 180, unit: 'cal', slot: 'day', roll: false, note: '決標次日起 180 日' }
