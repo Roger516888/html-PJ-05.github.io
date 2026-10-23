@@ -1,0 +1,115 @@
+{
+  "format": "procure-calendar",
+  "version": 3,
+  "cases": [
+    {
+      "id": "cga115014",
+      "caseNo": "CGA115014",
+      "name": "海巡中程無人機建置計畫",
+      "note": "第一次招標 115/7/31 廢標，115/10/13 重新公告；10/23 更正公告（投標須知第十二點、標價清單第五點）。POC 之後的天數為暫訂，請依實際調整。",
+      "tier": "huge",
+      "startRule": "next",
+      "anchorId": "s1",
+      "anchorDate": "2026-10-13",
+      "activeId": "s1",
+      "extraBefore": 0,
+      "extraAfter": 0,
+      "startMonth": "2025-01",
+      "notes": {},
+      "steps": [
+        {
+          "id": "s1",
+          "name": "上網公告",
+          "offset": 0,
+          "unit": "cal",
+          "slot": "day",
+          "roll": false,
+          "note": "重新公告",
+          "color": "#2f6fdf"
+        },
+        {
+          "id": "s2",
+          "name": "更正公告",
+          "offset": 10,
+          "unit": "cal",
+          "slot": "day",
+          "roll": false,
+          "note": "非紅供應鏈釋疑",
+          "color": "#64748b"
+        },
+        {
+          "id": "s3",
+          "name": "截止投標",
+          "offset": 28,
+          "unit": "cal",
+          "slot": "day",
+          "roll": true,
+          "note": "17:00",
+          "color": "#0f9488"
+        },
+        {
+          "id": "s4",
+          "name": "開標",
+          "offset": 1,
+          "unit": "work",
+          "slot": "am",
+          "roll": true,
+          "note": "10:00",
+          "color": "#d9822b"
+        },
+        {
+          "id": "s5",
+          "name": "POC說明會",
+          "offset": 0.5,
+          "unit": "cal",
+          "slot": "pm",
+          "roll": true,
+          "note": "",
+          "color": "#c2410c"
+        },
+        {
+          "id": "s6",
+          "name": "POC",
+          "offset": 14,
+          "unit": "cal",
+          "slot": "day",
+          "roll": false,
+          "note": "廠商申請空域 14 天，假日也可安排",
+          "color": "#8b5cf6"
+        },
+        {
+          "id": "s7",
+          "name": "評選",
+          "offset": 7,
+          "unit": "cal",
+          "slot": "day",
+          "roll": true,
+          "note": "",
+          "color": "#db2777"
+        },
+        {
+          "id": "s8",
+          "name": "決標",
+          "offset": 3,
+          "unit": "work",
+          "slot": "day",
+          "roll": true,
+          "note": "",
+          "color": "#16a34a"
+        },
+        {
+          "id": "s9",
+          "name": "備貨期限",
+          "offset": 180,
+          "unit": "cal",
+          "slot": "day",
+          "roll": false,
+          "note": "決標次日起 180 日",
+          "color": "#e0453a"
+        }
+      ],
+      "createdAt": "2026-10-22T14:00:00.000Z",
+      "updatedAt": "2026-10-23T00:30:00.000Z"
+    }
+  ]
+}

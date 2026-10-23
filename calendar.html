@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>採購時程日曆</title>
+    <link rel="stylesheet" href="calendar.css">
+</head>
+<body>
+    <main class="sheet">
+        <header class="doc-head">
+            <div class="head-row">
+                <input id="doc-caseno" class="doc-caseno" type="text" placeholder="案號" maxlength="30" aria-label="案號">
+                <input id="doc-title" class="doc-title" type="text" placeholder="案名，例如：OOO 系統採購案" maxlength="80" aria-label="案名">
+            </div>
+            <textarea id="doc-note" class="doc-note" rows="1" placeholder="備註（可不填）" maxlength="2000" aria-label="備註"></textarea>
+            <p id="doc-meta" class="doc-meta"></p>
+        </header>
+
+        <!-- 動態島：案件切換、各節點日期一覽，點節點切換要設定的對象 -->
+        <section id="island" class="island" aria-label="時程摘要">
+            <div class="island-bar">
+                <button id="case-btn" class="case-btn" type="button" aria-label="切換案件">
+                    <span id="case-btn-no" class="case-no"></span>
+                    <span id="case-btn-name" class="case-name"></span>
+                    <span class="caret" aria-hidden="true">▾</span>
+                </button>
+                <span id="sync" class="sync"></span>
+            </div>
+            <div class="island-top">
+                <span class="live-dot" aria-hidden="true"></span>
+                <span>點日期設定為</span>
+                <strong id="active-name" class="active-name"></strong>
+                <span class="island-tip">（點上方節點或格子裡的標籤可切換，也可直接拖曳標籤；格子上半部＝上午、下半部＝下午）</span>
+            </div>
+            <ol id="chips" class="chips"></ol>
+            <p id="readout" class="readout" aria-live="polite"></p>
+        </section>
+
+        <!-- 列印用：時程摘要表 -->
+        <table class="summary print-only">
+            <thead>
+                <tr><th>節點</th><th>日期</th><th>計算方式</th><th>期間</th></tr>
+            </thead>
+            <tbody id="summary-body"></tbody>
+        </table>
+
+        <div class="extend">
+            <button id="more-before" class="extend-btn" type="button">↑ 多顯示前一個月</button>
+        </div>
+
+        <table class="strip" aria-label="連續週曆">
+            <thead>
+                <tr>
+                    <th class="month-col">月份</th>
+                    <th>一</th><th>二</th><th>三</th><th>四</th><th>五</th><th class="weekend">六</th><th class="weekend">日</th>
+                </tr>
+            </thead>
+            <tbody id="weeks"></tbody>
+        </table>
+
+        <div class="extend">
+            <button id="more-after" class="extend-btn" type="button">↓ 多顯示後一個月</button>
+            <button id="range-reset" class="extend-btn" type="button" hidden>收回多顯示的月份</button>
+        </div>
+
+        <p id="foot-note" class="foot-note"></p>
+    </main>
+
+    <!-- 功能列 -->
+    <nav class="toolbar" aria-label="功能列">
+        <button id="btn-today" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="3"/><path d="M3.5 10h17M8 3v4M16 3v4"/><circle cx="12" cy="15" r="1.6" class="fill"/></svg></span>
+            <span class="tool-label">今天</span>
+        </button>
+        <button id="btn-undo" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 7L4.5 11.5 9 16"/><path d="M5 11.5h9.5a5 5 0 0 1 0 10H11"/></svg></span>
+            <span class="tool-label">復原</span>
+        </button>
+        <button id="btn-settings" class="tool primary" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2.2"/><circle cx="10" cy="17" r="2.2"/></svg></span>
+            <span class="tool-label">流程設定</span>
+        </button>
+        <button id="btn-cases" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg></span>
+            <span class="tool-label">案件</span>
+        </button>
+        <button id="btn-more" class="tool" type="button">
+            <span class="tool-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="12" r="1.8" class="fill"/><circle cx="12" cy="12" r="1.8" class="fill"/><circle cx="18" cy="12" r="1.8" class="fill"/></svg></span>
+            <span class="tool-label">更多</span>
+        </button>
+    </nav>
+
+    <!-- 流程設定 -->
+    <dialog id="settings" class="panel" aria-labelledby="settings-title">
+        <form id="settings-form" class="panel-inner" method="dialog">
+            <h2 id="settings-title" class="panel-title">流程設定</h2>
+            <fieldset class="rule-set">
+                <legend>天數起算方式</legend>
+                <label><input type="radio" name="startRule" value="next"> 次日起算（始日不算入，民法第 120 條）</label>
+                <label><input type="radio" name="startRule" value="same"> 當日起算（起始日算第 1 天）</label>
+            </fieldset>
+            <div class="rule-row">
+                <fieldset class="rule-set">
+                    <legend>採購金額級距</legend>
+                    <select id="tier" class="mini-input wide" aria-label="採購金額級距">
+                        <option value="">未設定</option>
+                        <option value="huge">巨額（等標期至少 28 日）</option>
+                        <option value="check">查核金額以上未達巨額（至少 14 日）</option>
+                        <option value="announce">公告金額以上未達查核（至少 7 日）</option>
+                    </select>
+                </fieldset>
+                <fieldset class="rule-set">
+                    <legend>年份顯示</legend>
+                    <label><input type="radio" name="era" value="roc"> 民國</label>
+                    <label><input type="radio" name="era" value="ad"> 西元</label>
+                </fieldset>
+                <fieldset class="rule-set">
+                    <legend>週曆起始月份</legend>
+                    <span class="start-month">
+                        <input id="start-year" class="mini-input" type="number" min="1" max="2200" placeholder="114" aria-label="起始年">
+                        <span id="start-year-unit">年（民國）</span>
+                        <select id="start-month" class="mini-input" aria-label="起始月">
+                            <option value="">--</option>
+                            <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                            <option value="4">4</option><option value="5">5</option><option value="6">6</option>
+                            <option value="7">7</option><option value="8">8</option><option value="9">9</option>
+                            <option value="10">10</option><option value="11">11</option><option value="12">12</option>
+                        </select>
+                        <span>月起</span>
+                        <button id="start-clear" class="btn small" type="button">改回自動</button>
+                    </span>
+                </fieldset>
+            </div>
+            <div class="steps-wrap">
+                <table class="steps">
+                    <thead>
+                        <tr><th><span class="sr-only">排序</span></th><th>節點名稱</th><th>與前一節點相隔</th><th>時段</th><th>遇假日順延</th><th>日期</th><th>說明</th><th><span class="sr-only">插入或刪除</span></th></tr>
+                    </thead>
+                    <tbody id="steps-body"></tbody>
+                </table>
+            </div>
+            <p class="panel-hint">拖曳左邊的 ⠿ 可調整中間節點的順序（也可選取後按 ↑↓），按 ＋ 在該列下方插入新節點。相隔天數可填 0.5 代表半天：上午加半天到下午，下午加半天到隔天上午。改某個節點的「日期」只會調整它與前一節點的相隔天數，並帶動後面的節點，前面的節點不會動；要整個時程平移，請改第一個節點。</p>
+            <div class="panel-actions">
+                <button id="add-step" class="btn" type="button">＋ 在最後一個節點前新增</button>
+                <button id="reset-steps" class="btn" type="button">恢復預設流程</button>
+                <button class="btn primary" type="submit">完成</button>
+            </div>
+        </form>
+    </dialog>
+
+    <!-- 案件清單 -->
+    <dialog id="case-sheet" class="sheet-dialog" aria-labelledby="case-sheet-title">
+        <div class="sheet-inner">
+            <div class="sheet-grip" aria-hidden="true"></div>
+            <h2 id="case-sheet-title" class="sheet-title">案件</h2>
+            <ul id="case-list" class="case-list"></ul>
+            <div class="sheet-actions">
+                <button id="case-new" class="btn" type="button">＋ 新增案件</button>
+                <button id="case-import" class="btn" type="button">匯入檔案</button>
+                <button class="btn primary" type="button" data-close>關閉</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- 更多 -->
+    <dialog id="more-sheet" class="sheet-dialog" aria-labelledby="more-sheet-title">
+        <div class="sheet-inner">
+            <div class="sheet-grip" aria-hidden="true"></div>
+            <h2 id="more-sheet-title" class="sheet-title">更多</h2>
+            <div class="seg-row">
+                <span class="seg-label">外觀</span>
+                <div class="seg" role="radiogroup" aria-label="外觀">
+                    <button class="seg-btn" type="button" data-theme-pick="auto">跟隨系統</button>
+                    <button class="seg-btn" type="button" data-theme-pick="light">白天</button>
+                    <button class="seg-btn" type="button" data-theme-pick="dark">黑夜</button>
+                </div>
+            </div>
+            <div class="sheet-list">
+                <button id="more-export" class="sheet-item" type="button"><span class="sheet-item-title">匯出…</span><span class="sheet-item-sub">單檔、.json 備份、行事曆 .ics</span></button>
+                <button id="more-import" class="sheet-item" type="button"><span class="sheet-item-title">匯入檔案</span><span class="sheet-item-sub">.json 備份或單檔 .html</span></button>
+                <button id="more-print" class="sheet-item" type="button"><span class="sheet-item-title">列印 A4</span><span id="more-print-sub" class="sheet-item-sub"></span></button>
+            </div>
+            <p id="about" class="about"></p>
+            <div class="sheet-actions">
+                <button class="btn primary" type="button" data-close>關閉</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- 匯出 -->
+    <dialog id="export-sheet" class="sheet-dialog" aria-labelledby="export-sheet-title">
+        <div class="sheet-inner">
+            <div class="sheet-grip" aria-hidden="true"></div>
+            <h2 id="export-sheet-title" class="sheet-title">匯出</h2>
+            <div class="sheet-list">
+                <button id="exp-html-one" class="sheet-item" type="button"><span class="sheet-item-title">單檔（這個案件）</span><span class="sheet-item-sub">一個 .html 檔，資料包在裡面；寄到公務信箱，電腦點兩下就能開、能印</span></button>
+                <button id="exp-html-all" class="sheet-item" type="button"><span class="sheet-item-title">單檔（全部案件）</span><span class="sheet-item-sub">同上，包含所有案件</span></button>
+                <button id="exp-json-one" class="sheet-item" type="button"><span class="sheet-item-title">.json 備份（這個案件）</span><span class="sheet-item-sub">存到 iCloud 或 Google 雲端，另一台「匯入」</span></button>
+                <button id="exp-json-all" class="sheet-item" type="button"><span class="sheet-item-title">.json 備份（全部案件）</span><span class="sheet-item-sub">同上，包含所有案件</span></button>
+                <button id="exp-ics" class="sheet-item" type="button"><span class="sheet-item-title">行事曆 .ics（這個案件）</span><span id="exp-ics-sub" class="sheet-item-sub">節點變成行事曆事件，匯入 Google 日曆</span></button>
+            </div>
+            <p id="export-note" class="about"></p>
+            <div class="sheet-actions">
+                <button class="btn primary" type="button" data-close>關閉</button>
+            </div>
+        </div>
+    </dialog>
+
+    <!-- 通用選擇 -->
+    <dialog id="choice-sheet" class="sheet-dialog" aria-labelledby="choice-title">
+        <div class="sheet-inner">
+            <div class="sheet-grip" aria-hidden="true"></div>
+            <h2 id="choice-title" class="sheet-title"></h2>
+            <p id="choice-message" class="choice-message"></p>
+            <div id="choice-buttons" class="sheet-list"></div>
+        </div>
+    </dialog>
+
+    <input id="import-file" type="file" accept=".json,.html,.htm,application/json,text/html" hidden>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+    <script src="holidays-data.js"></script>
+    <script src="calendar.js"></script>
+</body>
+</html>
