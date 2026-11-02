@@ -1,0 +1,435 @@
+/* ============================================================
+   賽道倒數計時 — 賽車轉播風格
+   色彩 token：黑底、賽車紅、旗號綠／黃／紅、分段紫
+   ============================================================ */
+:root {
+    color-scheme: dark;
+
+    --bg: #15151e;
+    --panel: #1d1d29;
+    --panel-2: #262634;
+    --line: #383848;
+    --text: #ffffff;
+    --muted: #a7a7bb;
+
+    --red: #e10600;
+    --green: #00d26a;
+    --yellow: #ffd60a;
+    --purple: #b44aff;
+    --danger-text: #ff453a;
+
+    --font: "Titillium Web", "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+[hidden] { display: none !important; }
+
+html, body { margin: 0; }
+
+body {
+    min-height: 100vh;
+    min-height: 100dvh;
+    font-family: var(--font);
+    color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    /* 碳纖維紋 + 頂部紅色光暈 */
+    background:
+        radial-gradient(1100px 520px at 50% -12%, rgba(225, 6, 0, .22), transparent 62%),
+        repeating-linear-gradient(45deg, rgba(255, 255, 255, .03) 0 2px, transparent 2px 6px),
+        repeating-linear-gradient(-45deg, rgba(0, 0, 0, .28) 0 2px, transparent 2px 6px),
+        var(--bg);
+}
+
+.app {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 16px clamp(16px, 3vw, 32px) 32px;
+    display: grid;
+    gap: 18px;
+}
+
+/* 依模式顯示／隱藏區塊 */
+.app[data-mode="timer"] [data-only="event"],
+.app[data-mode="event"] [data-only="timer"] { display: none !important; }
+
+/* ---------- 頂部列 ---------- */
+.topbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 20px;
+    padding-bottom: 14px;
+    border-bottom: 2px solid var(--red);
+}
+
+.brand { display: flex; align-items: center; gap: 12px; }
+
+.brand-mark { display: flex; gap: 4px; transform: skewX(-20deg); }
+.brand-mark i { display: block; width: 11px; height: 28px; background: var(--red); }
+.brand-mark i + i { width: 4px; opacity: .6; }
+
+.brand h1 {
+    margin: 0;
+    font-size: 1.4rem;
+    font-weight: 900;
+    letter-spacing: .06em;
+    line-height: 1.1;
+}
+.brand small {
+    display: block;
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: .78rem;
+    letter-spacing: .14em;
+}
+
+.modes, .actions { display: flex; gap: 6px; }
+
+.mode, .tool {
+    appearance: none;
+    border: 0;
+    color: var(--text);
+    font: 700 .95rem/1 var(--font);
+    letter-spacing: .08em;
+    cursor: pointer;
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 20px;
+    background: var(--panel-2);
+    clip-path: polygon(12px 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
+}
+.mode[aria-pressed="true"] { background: var(--red); }
+.mode:hover:not(:disabled), .tool:hover { filter: brightness(1.25); }
+.mode:disabled { opacity: .4; cursor: not-allowed; }
+.mode:focus-visible, .tool:focus-visible { outline: none; box-shadow: inset 0 0 0 3px #fff; }
+
+.tool .mute { display: none; }
+.tool[aria-pressed="false"] .wave { display: none; }
+.tool[aria-pressed="false"] .mute { display: inline; }
+.tool[aria-pressed="false"] { color: var(--muted); }
+
+/* ---------- 起跑燈 ---------- */
+.gantry {
+    justify-self: center;
+    display: flex;
+    gap: clamp(8px, 2.6vw, 24px);
+    padding: 12px clamp(14px, 3vw, 28px);
+    background: #0b0b11;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+}
+
+.pod {
+    display: grid;
+    gap: 8px;
+    padding: 9px;
+    background: #050508;
+    border: 1px solid #2b2b38;
+    border-radius: 12px;
+}
+
+.pod i {
+    display: block;
+    width: clamp(26px, 6.4vw, 54px);
+    aspect-ratio: 1;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #4a1b1f, #2a0e11 60%, #170708);
+    box-shadow: inset 0 0 0 2px rgba(0, 0, 0, .65);
+}
+
+/* 真實起跑燈是瞬間點亮、瞬間熄滅，所以不加過渡動畫 */
+.pod.on i {
+    background: radial-gradient(circle at 35% 30%, #ff9a90, #ff1a1a 45%, #b00000 100%);
+    box-shadow:
+        0 0 16px 3px rgba(255, 30, 30, .8),
+        0 0 56px 10px rgba(255, 30, 30, .38);
+}
+
+/* ---------- 版面 ---------- */
+.layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 340px;
+    gap: 18px;
+    align-items: start;
+}
+
+/* ---------- 主計時區 ---------- */
+.stage {
+    --accent: #6a6a85;
+    --ink: #ffffff;
+    --digit: #ffffff;
+
+    position: relative;
+    container-type: inline-size;
+    padding: clamp(18px, 3vw, 30px) clamp(18px, 3vw, 36px) clamp(22px, 3vw, 34px) clamp(24px, 3.4vw, 42px);
+    background: linear-gradient(180deg, #1d1d2a, #14141c);
+    border: 1px solid var(--line);
+    clip-path: polygon(0 0, calc(100% - 28px) 0, 100% 28px, 100% 100%, 0 100%);
+    overflow: hidden;
+}
+.stage::before {                       /* 左側狀態色條 */
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 8px;
+    background: var(--accent);
+}
+.stage::after {                        /* 時間到的閃光 */
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+}
+.stage.flash::after { animation: flash .9s ease-out 1; }
+
+.stage[data-phase="run"]    { --accent: var(--green);  --ink: #06210f; }
+.stage[data-phase="warn"]   { --accent: var(--yellow); --ink: #231c00; --digit: var(--yellow); }
+.stage[data-phase="crit"]   { --accent: var(--yellow); --ink: #231c00; --digit: var(--danger-text); }
+.stage[data-phase="paused"] { --accent: var(--red);    --ink: #ffffff; --digit: #c9c9d6; }
+.stage[data-phase="done"]   { --accent: #ffffff;       --ink: #111111; }
+
+/* 方格旗條（僅時間到顯示） */
+.checker {
+    display: none;
+    position: absolute;
+    inset: 0 0 auto 0;
+    height: 14px;
+    background:
+        conic-gradient(#fff 25%, #111 0 50%, #fff 0 75%, #111 0) 0 0 / 28px 28px;
+}
+.stage[data-phase="done"] .checker { display: block; }
+
+.flag {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 14px;
+}
+
+.chip {
+    padding: 6px 18px 6px 14px;
+    background: var(--accent);
+    color: var(--ink);
+    font-weight: 900;
+    font-size: .95rem;
+    letter-spacing: .12em;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+
+.flag-text { font-size: 1.1rem; font-weight: 700; letter-spacing: .04em; }
+.flag-meta { margin-left: auto; color: var(--muted); font-size: .9rem; letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+
+/* 大字時鐘：每個字元固定寬度，數字跳動時不會左右晃 */
+.clock {
+    display: flex;
+    align-items: baseline;
+    justify-content: center;
+    margin: clamp(20px, 4vw, 40px) 0 clamp(12px, 2vw, 22px);
+    font-weight: 900;
+    line-height: 1;
+    font-size: clamp(3.4rem, 15vw, 10.5rem);   /* 不支援容器單位時的備援 */
+    font-size: clamp(3rem, 24cqw, 11rem);
+    color: var(--digit);
+    transform: skewX(-8deg);
+}
+.clock.hours {
+    font-size: clamp(2.6rem, 11vw, 9rem);
+    font-size: clamp(2.6rem, 18cqw, 9rem);
+}
+.clock .main, .clock .ms { display: inline-flex; }
+.clock .ms { font-size: .34em; margin-left: .12em; color: var(--muted); }
+.stage[data-phase="crit"] .clock .ms { color: var(--danger-text); }
+
+.c { display: inline-block; text-align: center; }
+.c.d { width: .62em; }
+.c.p { width: .3em; }
+
+.stage[data-phase="done"] .clock,
+.stage[data-phase="done"] .board { animation: blink 1s steps(1) infinite; }
+
+/* 目標日期：天／時／分／秒 */
+.board {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: clamp(8px, 1.6vw, 16px);
+    margin: clamp(20px, 4vw, 36px) 0 6px;
+}
+.unit {
+    padding: clamp(10px, 2vw, 20px) 4px 10px;
+    text-align: center;
+    background: var(--panel-2);
+    border-top: 4px solid var(--accent);
+    transform: skewX(-8deg);
+}
+.unit .num {
+    display: flex;
+    justify-content: center;
+    font-weight: 900;
+    line-height: 1;
+    font-size: clamp(2rem, 8vw, 5rem);
+    font-size: clamp(2rem, 11cqw, 7.5rem);
+    color: var(--digit);
+}
+.unit .lbl { margin-top: 8px; color: var(--muted); font-size: .85rem; letter-spacing: .3em; text-indent: .3em; }
+
+/* 分段進度 S1 S2 S3 */
+.sectors { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 8px; }
+.sector span { display: block; margin-bottom: 4px; color: var(--muted); font-size: .75rem; font-weight: 700; letter-spacing: .14em; }
+.sector b { display: block; position: relative; height: 10px; background: #2d2d3e; transform: skewX(-20deg); overflow: hidden; }
+.sector i { position: absolute; inset: 0; background: var(--accent); transform: scaleX(var(--p, 0)); transform-origin: left; }
+.sector.full i { background: var(--purple); }
+
+/* ---------- 按鈕 ---------- */
+.controls { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; }
+
+.btn {
+    appearance: none;
+    border: 0;
+    min-height: 52px;
+    padding: 0 40px;
+    background: #34344a;
+    color: var(--text);
+    font: 700 1.05rem/1 var(--font);
+    letter-spacing: .14em;
+    cursor: pointer;
+    clip-path: polygon(14px 0, 100% 0, calc(100% - 14px) 100%, 0 100%);
+}
+.btn.primary { background: var(--red); min-width: 180px; }
+.btn.small { min-height: 44px; padding: 0 22px; }
+.btn:hover:not(:disabled) { filter: brightness(1.2); }
+.btn:active:not(:disabled) { filter: brightness(.9); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn:focus-visible { outline: none; box-shadow: inset 0 0 0 3px #fff; }
+
+/* ---------- 側欄 ---------- */
+.panel {
+    padding: 16px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    clip-path: polygon(0 0, calc(100% - 20px) 0, 100% 20px, 100% 100%, 0 100%);
+}
+
+.panel-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: .85rem;
+    font-weight: 700;
+    letter-spacing: .16em;
+}
+.panel-title::before { content: ""; width: 5px; height: 14px; background: var(--red); transform: skewX(-20deg); }
+
+/* 排位表 */
+.tower { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+
+.row {
+    width: 100%;
+    display: grid;
+    grid-template-columns: 30px 6px 1fr auto;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px 0 0;
+    min-height: 44px;
+    border: 0;
+    background: var(--panel-2);
+    color: var(--text);
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+    clip-path: polygon(0 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+}
+.row .pos { align-self: stretch; display: grid; place-items: center; background: #fff; color: #111; font-weight: 900; font-size: .9rem; }
+.row .bar { align-self: stretch; background: var(--team); }
+.row .who b { font-weight: 900; letter-spacing: .08em; margin-right: 8px; }
+.row .who small { color: var(--muted); font-size: .85rem; }
+.row .time { font-weight: 700; font-variant-numeric: tabular-nums; }
+.row:hover:not(:disabled) { background: #33334a; }
+.row[aria-pressed="true"] { background: #3b1317; box-shadow: inset 0 0 0 2px var(--red); }
+.row:disabled { opacity: .45; cursor: not-allowed; }
+.row:focus-visible { outline: none; box-shadow: inset 0 0 0 3px #fff; }
+
+.lock-hint { margin: 12px 0 0; color: var(--muted); font-size: .85rem; line-height: 1.5; }
+
+/* 表單 */
+.custom { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+.fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)) auto; gap: 8px; align-items: end; }
+
+label { display: grid; gap: 4px; color: var(--muted); font-size: .8rem; font-weight: 700; letter-spacing: .12em; }
+
+input[type="number"], input[type="text"], input[type="datetime-local"] {
+    width: 100%;
+    min-height: 44px;
+    padding: 0 10px;
+    background: #12121a;
+    color: var(--text);
+    border: 1px solid var(--line);
+    border-bottom: 3px solid var(--red);
+    border-radius: 0;
+    font: 700 1.1rem/1 var(--font);
+}
+input:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+input:disabled { opacity: .45; cursor: not-allowed; }
+
+.event-form { display: grid; gap: 14px; }
+
+.form-msg { min-height: 1.2em; margin: 8px 0 0; color: var(--danger-text); font-size: .85rem; }
+
+/* ---------- 提示 ---------- */
+.hints { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 22px; margin: 0; color: var(--muted); font-size: .85rem; }
+kbd {
+    display: inline-block;
+    min-width: 1.8em;
+    padding: 2px 8px;
+    margin-right: 4px;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    border-bottom-width: 2px;
+    color: var(--text);
+    font: 700 .8rem/1.4 var(--font);
+    text-align: center;
+}
+
+.noscript { text-align: center; color: var(--yellow); }
+
+/* ---------- 全螢幕：只留起跑燈與計時 ---------- */
+.fs .side, .fs .hints { display: none; }
+.fs .layout { grid-template-columns: minmax(0, 1fr); }
+.fs .app { max-width: none; min-height: 100vh; align-content: start; }
+.fs .clock { font-size: clamp(4rem, 26cqw, 26rem); }
+.fs .clock.hours { font-size: clamp(3rem, 18cqw, 20rem); }
+.fs .unit .num { font-size: clamp(3rem, 12cqw, 16rem); }
+.fs .flag-text { font-size: 1.4rem; }
+.fs .pod i { width: clamp(30px, 7vw, 84px); }
+
+/* ---------- 動畫 ---------- */
+@keyframes blink { 50% { opacity: .3; } }
+@keyframes flash { from { opacity: .6; } to { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+
+/* ---------- 窄螢幕 ---------- */
+@media (max-width: 900px) {
+    .layout { grid-template-columns: minmax(0, 1fr); }
+    .topbar { justify-content: center; }
+    .flag-meta { margin-left: 0; width: 100%; }
+}
+
+@media (max-width: 480px) {
+    .btn { padding: 0 28px; }
+    .btn.primary { min-width: 0; flex: 1 1 140px; }
+    .controls .btn { flex: 1 1 120px; }
+    .mode, .tool { padding: 0 14px; }
+    .tool span { display: none; }       /* 小螢幕只留圖示（按鈕仍有 aria-pressed 與焦點） */
+    .tool { padding: 0 12px; }
+}

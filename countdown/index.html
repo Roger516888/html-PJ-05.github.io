@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#15151e">
+    <meta name="color-scheme" content="dark">
+    <title>賽道倒數計時</title>
+    <meta name="description" content="賽車轉播風格的倒數計時工具：起跑燈、旗號狀態、分段進度，支援計時器與目標日期倒數。">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700;900&display=swap">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app" id="app" data-mode="timer">
+
+        <!-- 頂部列：品牌／模式切換／工具 -->
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true"><i></i><i></i></span>
+                <div>
+                    <h1>賽道倒數計時</h1>
+                    <small>起跑燈 · 旗號 · 分段計時</small>
+                </div>
+            </div>
+
+            <div class="modes" role="group" aria-label="計時模式">
+                <button type="button" class="mode" data-mode="timer" aria-pressed="true">計時器</button>
+                <button type="button" class="mode" data-mode="event" aria-pressed="false">目標日期</button>
+            </div>
+
+            <div class="actions">
+                <button type="button" class="tool" id="btnSound" aria-pressed="true" aria-label="音效">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M11 5 6 9H3v6h3l5 4z"/>
+                        <path class="wave" d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/>
+                        <path class="mute" d="m16 9 5 6m0-6-5 6"/>
+                    </svg>
+                    <span>音效</span>
+                </button>
+                <button type="button" class="tool" id="btnFull" aria-label="全螢幕">
+                    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>
+                    </svg>
+                    <span>全螢幕</span>
+                </button>
+            </div>
+        </header>
+
+        <!-- 起跑燈 -->
+        <section class="gantry" id="gantry" role="img" aria-label="起跑燈：全部熄滅">
+            <div class="pod"><i></i><i></i></div>
+            <div class="pod"><i></i><i></i></div>
+            <div class="pod"><i></i><i></i></div>
+            <div class="pod"><i></i><i></i></div>
+            <div class="pod"><i></i><i></i></div>
+        </section>
+
+        <div class="layout">
+            <!-- 主計時區 -->
+            <main class="stage" id="stage" data-phase="idle">
+                <div class="checker" aria-hidden="true"></div>
+
+                <div class="flag">
+                    <span class="chip" id="flagChip">待命</span>
+                    <strong class="flag-text" id="flagText" aria-live="polite">按下開始，準備起跑</strong>
+                    <span class="flag-meta" id="flagMeta"></span>
+                </div>
+
+                <!-- 計時器：大字時鐘 -->
+                <div class="clock" id="clock" role="timer" aria-label="剩餘時間" data-only="timer">
+                    <span class="main" id="clockMain" aria-hidden="true"></span><span class="ms" id="clockMs" aria-hidden="true"></span>
+                </div>
+
+                <!-- 目標日期：天／時／分／秒 -->
+                <div class="board" id="board" role="timer" aria-label="距離目標日期" data-only="event">
+                    <div class="unit"><div class="num" data-unit="d" aria-hidden="true"></div><div class="lbl">天</div></div>
+                    <div class="unit"><div class="num" data-unit="h" aria-hidden="true"></div><div class="lbl">時</div></div>
+                    <div class="unit"><div class="num" data-unit="m" aria-hidden="true"></div><div class="lbl">分</div></div>
+                    <div class="unit"><div class="num" data-unit="s" aria-hidden="true"></div><div class="lbl">秒</div></div>
+                </div>
+
+                <!-- 分段進度 -->
+                <div class="sectors" id="sectors" data-only="timer" aria-hidden="true">
+                    <div class="sector"><span>S1</span><b><i></i></b></div>
+                    <div class="sector"><span>S2</span><b><i></i></b></div>
+                    <div class="sector"><span>S3</span><b><i></i></b></div>
+                </div>
+
+                <div class="controls" data-only="timer">
+                    <button type="button" class="btn primary" id="btnStart">開始</button>
+                    <button type="button" class="btn" id="btnReset" disabled>重設</button>
+                </div>
+            </main>
+
+            <!-- 側欄 -->
+            <aside class="side">
+                <section class="panel" data-only="timer">
+                    <h2 class="panel-title">排位表 · 快速預設</h2>
+                    <ol class="tower" id="tower"></ol>
+                    <p class="lock-hint" id="lockHint" hidden>計時進行中，請先按「重設」才能更改時間。</p>
+
+                    <form class="custom" id="customForm" novalidate>
+                        <h2 class="panel-title">自訂時間</h2>
+                        <div class="fields">
+                            <label>時<input type="number" id="inH" min="0" max="99" value="0" inputmode="numeric"></label>
+                            <label>分<input type="number" id="inM" min="0" max="59" value="25" inputmode="numeric"></label>
+                            <label>秒<input type="number" id="inS" min="0" max="59" value="0" inputmode="numeric"></label>
+                            <button type="submit" class="btn small" id="btnSet">設定</button>
+                        </div>
+                        <p class="form-msg" id="customMsg" role="alert"></p>
+                    </form>
+                </section>
+
+                <section class="panel" data-only="event">
+                    <h2 class="panel-title">目標日期</h2>
+                    <form class="event-form" id="eventForm" novalidate>
+                        <label>事件名稱
+                            <input type="text" id="evName" maxlength="40" placeholder="例如：新年、發表會">
+                        </label>
+                        <label>日期與時間
+                            <input type="datetime-local" id="evTime">
+                        </label>
+                        <p class="form-msg" id="eventMsg" role="alert"></p>
+                    </form>
+                    <p class="lock-hint">倒數的最後 5 秒同樣會點亮起跑燈。設定會自動儲存在這台裝置上。</p>
+                </section>
+            </aside>
+        </div>
+
+        <p class="hints">
+            <span><kbd>空白鍵</kbd> 開始／暫停</span>
+            <span><kbd>R</kbd> 重設</span>
+            <span><kbd>F</kbd> 全螢幕</span>
+            <span><kbd>M</kbd> 音效開關</span>
+        </p>
+    </div>
+
+    <noscript><p class="noscript">此工具需要啟用 JavaScript 才能運作。</p></noscript>
+    <script src="app.js"></script>
+</body>
+</html>
