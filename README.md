@@ -4,7 +4,7 @@
 ## 賽道倒數計時（`countdown/`）
 
 賽車轉播風格的倒數計時工具，純 HTML／CSS／JavaScript，不需建置。
-發佈後的網址：`/countdown/`（例如 `https://roger516888.github.io/countdown/`）。
+使用方式：啟用 GitHub Pages 後開啟網站下的 `countdown/` 路徑；本機也可以直接用瀏覽器開啟 `countdown/index.html`。
 
 - **計時器**：快速預設（專注、休息、簡報…）或自訂 1 秒～99:59:59；開始／暫停／重設。
 - **目標日期**：倒數到指定的日期時間，顯示天／時／分／秒，設定會存在瀏覽器。
