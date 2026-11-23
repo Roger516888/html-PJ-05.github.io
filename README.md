@@ -13,3 +13,8 @@
 - **分段進度**：S1／S2／S3 三段，走完的分段轉紫色。
 - **快捷鍵**：空白鍵 開始／暫停、`R` 重設、`F` 全螢幕、`M` 音效開關。
 - 計時以「結束時刻」為準，分頁在背景也不會失準；計時中會保持螢幕常亮（瀏覽器支援時），並把剩餘時間顯示在分頁標題。
+
+## 神耀智慧後勤平台｜海鷹專案（`haiying/`）
+
+從 https://extraordinary-brigadeiros-2a48a3.netlify.app/ 抓下來的單一檔案版本（CSS、JS、Leaflet 都已內嵌），直接開啟 `haiying/index.html` 即可。
+地圖底圖（CARTO）與字型（Google Fonts）仍需連網載入。
