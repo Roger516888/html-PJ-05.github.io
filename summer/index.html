@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#040a14">
-<title>神耀智慧後勤平台｜海鷹專案</title>
+<title>神耀智慧後勤平台｜暑假專案</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Rajdhani:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
 /* required styles */
@@ -13384,7 +13384,7 @@ table.pbt td.h-ok{background:rgba(46,230,166,.08);color:#9ff5d6}table.pbt td.h-w
 <div class="login" id="login"><div class="radar"></div>
   <form class="lg" id="lgForm" autocomplete="off">
     <div class="brand"><svg class="logo" viewBox="0 0 48 48" fill="none" stroke="#22d3ee" stroke-width="2"><path d="M24 3l18 10.5v21L24 45 6 34.5v-21z" opacity=".5"/><circle cx="24" cy="24" r="5"/><path d="M24 19v-7M24 29v7M19 24h-7M29 24h7"/><circle cx="24" cy="9" r="3"/><circle cx="24" cy="39" r="3"/><circle cx="9" cy="24" r="3"/><circle cx="39" cy="24" r="3"/></svg><div><h1>智慧後勤平台</h1><div class="en">SMART LOGISTICS · CGA116014</div></div></div>
-    <div class="sub">海鷹專案｜神耀科技 · Vector AI 2-in-1 機隊維保與設備監控</div>
+    <div class="sub">暑假專案｜神耀科技 · Vector AI 2-in-1 機隊維保與設備監控</div>
     <label class="f">帳號</label><input type="text" id="lgId" autocapitalize="off">
     <label class="f">密碼</label><input type="password" id="lgPw">
     <div class="err" id="lgErr"></div>
@@ -14250,7 +14250,7 @@ function vBI(){
   const sites = scopedSites();
   const slicer = isSite() ? `<div class="slc"><span>據點</span><div class="bs"><button class="on">${siteOf(ACC.site).short}</button></div></div>`
     : `<div class="slc"><span>據點</span><div class="bs"><button class="${biSite==='all'?'on':''}" data-act="bisite" data-id="all">全部</button>${sites.map(s => `<button class="${biSite===s.k?'on':''}" data-act="bisite" data-id="${s.k}">${s.short}</button>`).join('')}</div></div>`;
-  const top = `<div class="bi-top"><div class="bi-title">海鷹專案 智慧後勤圖控中心<small>資料更新 ${fmt(now())}｜維保週期依 Vector AI 2-in-1 維保手冊 R0</small></div>
+  const top = `<div class="bi-top"><div class="bi-title">暑假專案 智慧後勤圖控中心<small>資料更新 ${fmt(now())}｜維保週期依 Vector AI 2-in-1 維保手冊 R0</small></div>
     ${slicer}<div class="slc"><span>期間</span><div class="bs">${[7,30].map(d => `<button class="${biDays===d?'on':''}" data-act="bidays" data-id="${d}">近 ${d} 天</button>`).join('')}</div></div>
     <div class="slc"><span>&nbsp;</span><button class="pbtn" data-act="export">⇩ 匯出 Power BI 資料</button></div></div>`;
   const body = biPage === 1 ? biP1() : biPage === 2 ? biP2() : biP3();
